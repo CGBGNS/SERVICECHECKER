@@ -10,7 +10,6 @@
   <main class="page">
     <header class="hero">
       <h1>Genesys Service Checker</h1>
-      <p>Static GitHub Pages version with browser authentication (PKCE).</p>
     </header>
 
     <section class="card">
@@ -53,14 +52,6 @@
       <div id="output" class="output" aria-live="polite"></div>
     </section>
 
-    <section class="card help-card">
-      <h2>Before you deploy</h2>
-      <ol>
-        <li>Edit <code>config.js</code> and set your Genesys Cloud <code>clientId</code>, <code>environment</code>, and GitHub Pages <code>redirectUri</code>.</li>
-        <li>Create or update the OAuth client in Genesys Cloud so the redirect URI matches your GitHub Pages URL exactly.</li>
-        <li>Make sure the signed-in user and OAuth client have the permissions/scopes needed for the API calls used by this checker.</li>
-      </ol>
-    </section>
   </main>
 
   <script src="config.js"></script>
