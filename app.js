@@ -74,7 +74,10 @@ const elements = {
   service: document.getElementById('service'),
   runBtn: document.getElementById('runBtn'),
   output: document.getElementById('output'),
-  summary: document.getElementById('summary')
+  summary: document.getElementById('summary'),
+  csvForm: document.getElementById('csvForm'),
+  csvFile: document.getElementById('csvFile'),
+  runCsvBtn: document.getElementById('runCsvBtn')
 };
 
 const counters = {
@@ -125,12 +128,18 @@ function updateSummary(text = '') {
 }
 
 function setBusy(isBusy) {
-  elements.loginBtn.disabled = isBusy;
-  elements.logoutBtn.disabled = isBusy;
-  elements.runBtn.disabled = isBusy;
-  elements.clearBtn.disabled = isBusy;
-  elements.country.disabled = isBusy;
-  elements.service.disabled = isBusy;
+  [
+    elements.loginBtn,
+    elements.logoutBtn,
+    elements.runBtn,
+    elements.clearBtn,
+    elements.country,
+    elements.service,
+    elements.csvFile,
+    elements.runCsvBtn
+  ].filter(Boolean).forEach((element) => {
+    element.disabled = isBusy;
+  });
 }
 
 function setAuthStatus(text, kind) {
@@ -369,6 +378,44 @@ async function apiGet(path, query = {}) {
     }
   }
 
+async function apiSend(method, path, body) {
+  const url = `https://api.${APP_CONFIG.environment}${path}`;
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      ...getAuthorizationHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  const raw = await response.text();
+  let data;
+
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = raw;
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    data,
+    raw
+  };
+}
+
+async function apiPost(path, body) {
+  return apiSend('POST', path, body);
+}
+
+async function apiPatch(path, body) {
+  return apiSend('PATCH', path, body);
+}
+  
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: getAuthorizationHeaders()
@@ -865,6 +912,223 @@ async function ensureAuthenticated() {
   await startLogin();
   return false;
 }
+function hasCsvHeader(rows, headerNames) {
+  const headers = Object.keys(rows[0] || {}).map((key) => asTrimmedString(key).toLowerCase());
+  return headerNames.some((name) => headers.includes(name.toLowerCase()));
+}
+
+function getRowValueByHeader(row, headerNames) {
+  for (const [key, value] of Object.entries(row || {})) {
+    if (headerNames.some((name) => asTrimmedString(key).toLowerCase() === name.toLowerCase())) {
+      return asTrimmedString(value);
+    }
+  }
+  return '';
+}
+
+function detectCsvDelimiter(text) {
+  const firstLine = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .find((line) => line.trim() !== '') || '';
+
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+
+  return semicolonCount > commaCount ? ';' : ',';
+}
+
+function parseCsvText(text) {
+  const input = text.replace(/^\uFEFF/, '');
+  const delimiter = detectCsvDelimiter(input);
+  const rows = [];
+  let currentRow = [];
+  let currentValue = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    const nextChar = input[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentValue += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      currentRow.push(currentValue);
+      currentValue = '';
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') i += 1;
+      currentRow.push(currentValue);
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = '';
+      continue;
+    }
+
+    currentValue += char;
+  }
+
+  currentRow.push(currentValue);
+  if (currentRow.some((cell) => asTrimmedString(cell) !== '')) {
+    rows.push(currentRow);
+  }
+
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map((header) => asTrimmedString(header));
+
+  return rows
+    .slice(1)
+    .filter((row) => row.some((cell) => asTrimmedString(cell) !== ''))
+    .map((row) => {
+      const record = {};
+      headers.forEach((header, index) => {
+        record[header] = asTrimmedString(row[index] ?? '');
+      });
+      return record;
+    });
+}
+
+async function processCsvUserRow(row, rowNumber) {
+  const email = getRowValueByHeader(row, ['Email', 'E-mail']);
+  const matricula = getRowValueByHeader(row, ['Matricula', 'Matrícula']);
+
+  if (!email) {
+    logWarning(`Row ${rowNumber}: Email empty. Skipped.`);
+    return { updated: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!matricula) {
+    logWarning(`Row ${rowNumber}: Matricula empty for ${email}. Skipped.`);
+    return { updated: 0, skipped: 1, failed: 0 };
+  }
+
+  logInfo(`Row ${rowNumber}: processing ${email}`);
+
+  const searchBody = {
+    pageSize: 100,
+    pageNumber: 1,
+    query: [
+      {
+        type: 'EXACT',
+        fields: ['state'],
+        values: ['active', 'inactive']
+      },
+      {
+        type: 'QUERY_STRING',
+        fields: ['email'],
+        value: email
+      }
+    ]
+  };
+
+  const searchResponse = await apiPost('/api/v2/users/search', searchBody);
+
+  if (!searchResponse.ok) {
+    logError(`Row ${rowNumber}: user search failed (${searchResponse.status}) - ${searchResponse.raw || searchResponse.statusText}`);
+    return { updated: 0, skipped: 0, failed: 1 };
+  }
+
+  const results = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
+
+  if (results.length === 0) {
+    logWarning(`Row ${rowNumber}: user not found for ${email}.`);
+    return { updated: 0, skipped: 1, failed: 0 };
+  }
+
+  const matchedUser =
+    results.find((item) => asTrimmedString(item.email).toLowerCase() === email.toLowerCase()) ||
+    results[0];
+
+  if (matchedUser.version === undefined || matchedUser.version === null) {
+    logError(`Row ${rowNumber}: version not returned for ${email}. Cannot update user.`);
+    return { updated: 0, skipped: 0, failed: 1 };
+  }
+
+  if (results.length > 1) {
+    logWarning(`Row ${rowNumber}: multiple users returned for ${email}. Using ${matchedUser.id}.`);
+  } else {
+    logSuccess(`Row ${rowNumber}: user found ${matchedUser.id}`);
+  }
+
+  const patchBody = {
+    employerInfo: {
+      employeeId: matricula
+    },
+    version: matchedUser.version
+  };
+
+  const updateResponse = await apiPatch(
+    `/api/v2/users/${encodeURIComponent(matchedUser.id)}`,
+    patchBody
+  );
+
+  if (!updateResponse.ok) {
+    logError(`Row ${rowNumber}: update failed (${updateResponse.status}) - ${updateResponse.raw || updateResponse.statusText}`);
+    return { updated: 0, skipped: 0, failed: 1 };
+  }
+
+  logSuccess(`Row ${rowNumber}: user updated with Matricula ${matricula}`);
+  return { updated: 1, skipped: 0, failed: 0 };
+}
+
+async function processCsvFile(file) {
+  clearOutput();
+  updateSummary('Processing CSV...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rows = parseCsvText(text);
+
+    if (!rows.length) {
+      logError('The CSV file is empty or could not be parsed.');
+      updateSummary('Stopped: no rows found.');
+      return;
+    }
+
+    if (!hasCsvHeader(rows, ['Email', 'E-mail']) || !hasCsvHeader(rows, ['Matricula', 'Matrícula'])) {
+      logError('CSV must contain the headers Email and Matricula.');
+      updateSummary('Stopped: invalid CSV headers.');
+      return;
+    }
+
+    logInfo(`CSV loaded: ${file.name}`);
+    logInfo(`Rows to process: ${rows.length}`);
+
+    let updated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const result = await processCsvUserRow(rows[index], index + 2);
+      updated += result.updated;
+      skipped += result.skipped;
+      failed += result.failed;
+    }
+
+    logInfo('CSV processing completed.');
+    updateSummary(`CSV finished: ${updated} updated, ${skipped} skipped, ${failed} failed.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`CSV stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.csvForm) elements.csvForm.reset();
+  }
+}
 
 function bindEvents() {
   elements.loginBtn.addEventListener('click', async () => {
@@ -881,6 +1145,23 @@ function bindEvents() {
     clearOutput();
   });
 
+  elements.csvForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const file = elements.csvFile.files?.[0];
+
+    if (!file) {
+      clearOutput();
+      logError('Select a CSV file first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    await processCsvFile(file);
+  });
+  
   elements.checkerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
 
