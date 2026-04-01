@@ -377,6 +377,29 @@ async function apiGet(path, query = {}) {
       url.searchParams.set(key, String(value));
     }
   }
+  
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: getAuthorizationHeaders()
+  });
+
+  const raw = await response.text();
+  let data;
+
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = raw;
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    data,
+    raw
+  };
+}
 
 async function apiSend(method, path, body) {
   const url = `https://api.${APP_CONFIG.environment}${path}`;
@@ -414,29 +437,6 @@ async function apiPost(path, body) {
 
 async function apiPatch(path, body) {
   return apiSend('PATCH', path, body);
-}
-  
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: getAuthorizationHeaders()
-  });
-
-  const raw = await response.text();
-  let data;
-
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    data = raw;
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    statusText: response.statusText,
-    data,
-    raw
-  };
 }
 
 function isEnabled(value) {
