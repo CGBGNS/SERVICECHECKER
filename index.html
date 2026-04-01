@@ -52,6 +52,27 @@
       <div id="output" class="output" aria-live="polite"></div>
     </section>
 
+<section class="card">
+  <div class="output-header">
+    <h2>Bulk user update from CSV</h2>
+  </div>
+
+  <form id="csvForm" class="form-grid">
+    <label class="form-span-all">
+      <span>CSV file</span>
+      <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
+    </label>
+
+    <div class="form-actions">
+      <button id="runCsvBtn" type="submit">Process CSV</button>
+    </div>
+  </form>
+
+  <p class="section-note">
+    Expected headers: <code>Email</code> and <code>Matricula</code>.
+  </p>
+</section>
+    
   </main>
 
   <script src="config.js"></script>
