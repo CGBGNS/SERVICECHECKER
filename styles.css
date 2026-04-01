@@ -229,3 +229,16 @@ code {
     padding: 16px;
   }
 }
+
+.form-span-all {
+  grid-column: 1 / -1;
+}
+
+.section-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
+input[type="file"] {
+  padding: 10px 12px;
+}
