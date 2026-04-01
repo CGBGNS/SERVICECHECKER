@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Genesys Service Checker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <h1>Genesys Service Checker</h1>
+      <p>Static GitHub Pages version with browser authentication (PKCE).</p>
+    </header>
+
+    <section class="card">
+      <div class="toolbar">
+        <div>
+          <strong>Status:</strong>
+          <span id="authStatus" class="status-pill status-idle">Not signed in</span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="loginBtn" type="button">Sign in</button>
+          <button id="logoutBtn" type="button" class="secondary">Sign out</button>
+          <button id="clearBtn" type="button" class="secondary">Clear output</button>
+        </div>
+      </div>
+
+      <form id="checkerForm" class="form-grid">
+        <label>
+          <span>Country</span>
+          <select id="country" required>
+            <option value="">Select a country</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Service</span>
+          <input id="service" name="service" type="text" placeholder="Enter the service row key" required autocomplete="off">
+        </label>
+
+        <div class="form-actions">
+          <button id="runBtn" type="submit">Start process</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="output-header">
+        <h2>Output</h2>
+        <span id="summary" class="summary"></span>
+      </div>
+      <div id="output" class="output" aria-live="polite"></div>
+    </section>
+
+    <section class="card help-card">
+      <h2>Before you deploy</h2>
+      <ol>
+        <li>Edit <code>config.js</code> and set your Genesys Cloud <code>clientId</code>, <code>environment</code>, and GitHub Pages <code>redirectUri</code>.</li>
+        <li>Create or update the OAuth client in Genesys Cloud so the redirect URI matches your GitHub Pages URL exactly.</li>
+        <li>Make sure the signed-in user and OAuth client have the permissions/scopes needed for the API calls used by this checker.</li>
+      </ol>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+window.APP_CONFIG = {
+  clientId: 'YOUR_GENESYS_CLOUD_OAUTH_CLIENT_ID',
+  environment: 'mypurecloud.de',
+  redirectUri: 'https://YOUR_GITHUB_USERNAME.github.io/YOUR_REPO_NAME/',
+  scopes: []
+};
