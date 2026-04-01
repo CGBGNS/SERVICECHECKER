@@ -22,15 +22,15 @@ const COUNTRY_CONFIG = {
   PRT: {
     label: 'Portugal',
     configured: true,
-    datatableIdConfig: '92f1665b-cb1f-4f83-af19-f55546d4b43d',
-    datatableIdRouting: 'a75c3725-c299-4a18-a736-8644fb75f87f',
+    datatableIdConfig: 'bbbd340f-4556-42ac-8bbe-b414a5f9dfd6',
+    datatableIdRouting: 'eac10d92-b18c-4c0d-adee-d54e49f6b432',
     langAudio: 'pt-pt'
   },
   ESP: {
     label: 'Spain',
     configured: true,
-    datatableIdConfig: '4fa10087-325b-4039-8861-977a23cb167d',
-    datatableIdRouting: '935ed5a9-bdd9-461b-9245-83f8bbaba952',
+    datatableIdConfig: '2cd844ac-7547-40f6-b27a-58c252eba625',
+    datatableIdRouting: '28b9b648-34cb-4a6b-966c-aa2f5cec4c83',
     langAudio: 'es-es'
   },
   FRA: {
@@ -40,21 +40,28 @@ const COUNTRY_CONFIG = {
     datatableIdRouting: 'd9437318-9897-465a-a617-f9111557df22',
     langAudio: 'fr-fr'
   },
-  ITA: { label: 'Italy', configured: false },
+  ITA: { label: 'Italy', 
+        configured: true,
+ datatableIdConfig: '29d7f750-8857-4c29-b845-3fcafd459a8a',
+    datatableIdRouting: '131a869e-b378-4677-a083-8681c212e163',
+    langAudio: 'it-it'
+       },
   GBR: { label: 'United Kingdom', configured: false },
   IRL: { label: 'Ireland', configured: false },
   BRA: {
     label: 'Brazil',
     configured: true,
-    datatableIdConfig: '09dc8f76-01c8-46b1-be31-477f12d329ec',
-    datatableIdRouting: '7e641552-8f7e-4ed4-916a-cd5e987ba383',
+    datatableIdConfig: '0e2e4e1a-8919-42b3-9ee2-27757f626541',
+    datatableIdRouting: 'fa028c5a-13b8-4041-a3cc-426dc876af8b',
     langAudio: 'pt-br'
   },
   ARG: { label: 'Argentina', configured: false },
   PER: { label: 'Peru', configured: false },
   CHL: { label: 'Chile', configured: false },
   MEX: { label: 'Mexico', configured: false },
-  TST: { label: 'Test', configured: false }
+  TST: { label: 'Test',
+        configured: false
+       }
 };
 
 const elements = {
