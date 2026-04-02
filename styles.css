@@ -242,3 +242,41 @@ code {
 input[type="file"] {
   padding: 10px 12px;
 }
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tabs-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #d9d9d9;
+  padding-bottom: 12px;
+}
+
+.tab-btn {
+  appearance: none;
+  border: 1px solid #d9d9d9;
+  background: #f7f7f7;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tab-btn.active {
+  background: #ffffff;
+  border-color: #999999;
+  font-weight: 600;
+}
+
+.tab-panel[hidden] {
+  display: none !important;
+}
+
+.tab-panel {
+  padding-top: 4px;
+}
