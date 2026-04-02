@@ -77,7 +77,10 @@ const elements = {
   summary: document.getElementById('summary'),
   csvForm: document.getElementById('csvForm'),
   csvFile: document.getElementById('csvFile'),
-  runCsvBtn: document.getElementById('runCsvBtn')
+  runCsvBtn: document.getElementById('runCsvBtn'),
+  scheduleCsvForm: document.getElementById('scheduleCsvForm'),
+  scheduleCsvFile: document.getElementById('scheduleCsvFile'),
+  runScheduleCsvBtn: document.getElementById('runScheduleCsvBtn')
 };
 
 const counters = {
@@ -136,7 +139,9 @@ function setBusy(isBusy) {
     elements.country,
     elements.service,
     elements.csvFile,
-    elements.runCsvBtn
+    elements.runCsvBtn,
+    elements.scheduleCsvFile,
+    elements.runScheduleCsvBtn
   ].filter(Boolean).forEach((element) => {
     element.disabled = isBusy;
   });
@@ -1129,6 +1134,251 @@ async function processCsvFile(file) {
     if (elements.csvForm) elements.csvForm.reset();
   }
 }
+const SCHEDULE_DAY_MAP = {
+  monday: 'MO',
+  tuesday: 'TU',
+  wednesday: 'WE',
+  thursday: 'TH',
+  friday: 'FR',
+  saturday: 'SA',
+  sunday: 'SU'
+};
+
+const SCHEDULE_DAY_ORDER = Object.keys(SCHEDULE_DAY_MAP);
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function formatLocalDate(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function parseScheduleDefinition(scheduleText) {
+  const value = asTrimmedString(scheduleText).toLowerCase();
+  const parts = value.split(':');
+
+  if (parts.length !== 2) {
+    throw new Error(`Invalid Schedule format: ${scheduleText}. Expected day/day-range:HHMM-HHMM`);
+  }
+
+  const dayPart = asTrimmedString(parts[0]);
+  const timePart = asTrimmedString(parts[1]);
+  const timePieces = timePart.split('-');
+
+  if (timePieces.length !== 2) {
+    throw new Error(`Invalid time range in Schedule: ${scheduleText}`);
+  }
+
+  const startRaw = asTrimmedString(timePieces[0]);
+  const endRaw = asTrimmedString(timePieces[1]);
+
+  if (!/^\d{4}$/.test(startRaw) || !/^\d{4}$/.test(endRaw)) {
+    throw new Error(`Invalid time format in Schedule: ${scheduleText}. Expected HHMM-HHMM`);
+  }
+
+  const startTime = `${startRaw.slice(0, 2)}:${startRaw.slice(2)}:00`;
+  const endTime = `${endRaw.slice(0, 2)}:${endRaw.slice(2)}:00`;
+
+  let byDay;
+
+  if (dayPart.includes('-')) {
+    const rangeParts = dayPart.split('-');
+    if (rangeParts.length !== 2) {
+      throw new Error(`Invalid day range in Schedule: ${scheduleText}`);
+    }
+
+    const startDay = asTrimmedString(rangeParts[0]).toLowerCase();
+    const endDay = asTrimmedString(rangeParts[1]).toLowerCase();
+
+    if (!SCHEDULE_DAY_MAP[startDay] || !SCHEDULE_DAY_MAP[endDay]) {
+      throw new Error(`Invalid weekday in Schedule: ${scheduleText}`);
+    }
+
+    const startIndex = SCHEDULE_DAY_ORDER.indexOf(startDay);
+    const endIndex = SCHEDULE_DAY_ORDER.indexOf(endDay);
+
+    const daysInRange = startIndex <= endIndex
+      ? SCHEDULE_DAY_ORDER.slice(startIndex, endIndex + 1)
+      : [
+          ...SCHEDULE_DAY_ORDER.slice(startIndex),
+          ...SCHEDULE_DAY_ORDER.slice(0, endIndex + 1)
+        ];
+
+    byDay = daysInRange.map((day) => SCHEDULE_DAY_MAP[day]).join(',');
+  } else {
+    if (!SCHEDULE_DAY_MAP[dayPart]) {
+      throw new Error(`Invalid weekday in Schedule: ${scheduleText}`);
+    }
+
+    byDay = SCHEDULE_DAY_MAP[dayPart];
+  }
+
+  return {
+    startTime,
+    endTime,
+    byDay
+  };
+}
+
+async function findDivisionByName(divisionName) {
+  const value = asTrimmedString(divisionName);
+
+  if (!value) {
+    return { ok: false, message: 'Division empty.' };
+  }
+
+  const response = await apiGet('/api/v2/authorization/divisions', { name: value });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      message: `Division lookup failed (${response.status}) - ${response.raw || response.statusText}`
+    };
+  }
+
+  const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+  const division = exactEntityByName(entities, value);
+
+  if (!division) {
+    return {
+      ok: false,
+      message: `Division not found: ${value}`
+    };
+  }
+
+  return { ok: true, division };
+}
+
+async function processScheduleCsvRow(row, rowNumber) {
+  const divisionName = getRowValueByHeader(row, ['Division']);
+  const scheduleText = getRowValueByHeader(row, ['Schedule']);
+  const scheduleName = getRowValueByHeader(row, ['Nombre', 'Name']);
+
+  if (!divisionName) {
+    logWarning(`Row ${rowNumber}: Division empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!scheduleText) {
+    logWarning(`Row ${rowNumber}: Schedule empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!scheduleName) {
+    logWarning(`Row ${rowNumber}: Nombre empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  logInfo(`Row ${rowNumber}: processing schedule "${scheduleName}"`);
+
+  const divisionLookup = await findDivisionByName(divisionName);
+
+  if (!divisionLookup.ok) {
+    logError(`Row ${rowNumber}: ${divisionLookup.message}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  let parsedSchedule;
+
+  try {
+    parsedSchedule = parseScheduleDefinition(scheduleText);
+  } catch (err) {
+    logError(`Row ${rowNumber}: ${err.message}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  const today = new Date();
+  const startDate = formatLocalDate(today);
+  const endDate = parsedSchedule.endTime === '00:00:00'
+    ? formatLocalDate(addDays(today, 1))
+    : formatLocalDate(today);
+
+  const division = divisionLookup.division;
+
+  const requestBody = {
+    start: `${startDate}T${parsedSchedule.startTime}`,
+    end: `${endDate}T${parsedSchedule.endTime}`,
+    rrule: `FREQ=WEEKLY;WKST=SU;BYDAY=${parsedSchedule.byDay}`,
+    name: scheduleName,
+    division: {
+      id: division.id,
+      name: division.name || divisionName,
+      selfUri: division.selfUri || `/api/v2/authorization/divisions/${division.id}`
+    }
+  };
+
+  logInfo(`Row ${rowNumber}: BYDAY=${parsedSchedule.byDay}`);
+  logInfo(`Row ${rowNumber}: creating schedule "${scheduleName}"`);
+
+  const createResponse = await apiPost('/api/v2/architect/schedules', requestBody);
+
+  if (!createResponse.ok) {
+    logError(`Row ${rowNumber}: Failure ${createResponse.status} - ${createResponse.statusText} - ${createResponse.raw || ''}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  logSuccess(`Row ${rowNumber}: schedule created: ${scheduleName}`);
+  return { created: 1, skipped: 0, failed: 0 };
+}
+
+async function processScheduleCsvFile(file) {
+  clearOutput();
+  updateSummary('Processing schedules CSV...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rows = parseCsvText(text);
+
+    if (!rows.length) {
+      logError('The schedules CSV file is empty or could not be parsed.');
+      updateSummary('Stopped: no rows found.');
+      return;
+    }
+
+    if (
+      !hasCsvHeader(rows, ['Division']) ||
+      !hasCsvHeader(rows, ['Schedule']) ||
+      !hasCsvHeader(rows, ['Nombre', 'Name'])
+    ) {
+      logError('CSV must contain the headers Division, Schedule and Nombre.');
+      updateSummary('Stopped: invalid CSV headers.');
+      return;
+    }
+
+    logInfo(`CSV loaded: ${file.name}`);
+    logInfo(`Rows to process: ${rows.length}`);
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const result = await processScheduleCsvRow(rows[index], index + 2);
+      created += result.created;
+      skipped += result.skipped;
+      failed += result.failed;
+    }
+
+    logInfo('Schedules CSV processing completed.');
+    updateSummary(`Schedules CSV finished: ${created} created, ${skipped} skipped, ${failed} failed.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Schedules CSV stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.scheduleCsvForm) elements.scheduleCsvForm.reset();
+  }
+}
 
 function bindEvents() {
   elements.loginBtn.addEventListener('click', async () => {
@@ -1136,7 +1386,26 @@ function bindEvents() {
     logInfo('Starting sign-in...');
     await startLogin();
   });
+  
+  if (elements.scheduleCsvForm) {
+    elements.scheduleCsvForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
 
+      const file = elements.scheduleCsvFile?.files?.[0];
+
+      if (!file) {
+        clearOutput();
+        logError('Select a schedules CSV file first.');
+        return;
+      }
+
+      const isAuthenticated = await ensureAuthenticated();
+      if (!isAuthenticated) return;
+
+      await processScheduleCsvFile(file);
+    });
+  }
+  
   elements.logoutBtn.addEventListener('click', () => {
     signOut();
   });
