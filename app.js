@@ -83,6 +83,12 @@ const elements = {
   runScheduleCsvBtn: document.getElementById('runScheduleCsvBtn')
 };
 
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTabs);
+} else {
+  initTabs();
+}
+
 const counters = {
   errors: 0,
   warnings: 0
@@ -1378,6 +1384,44 @@ async function processScheduleCsvFile(file) {
     setBusy(false);
     if (elements.scheduleCsvForm) elements.scheduleCsvForm.reset();
   }
+}
+
+function initTabs() {
+  const tabWrappers = document.querySelectorAll('[data-tabs]');
+
+  tabWrappers.forEach((wrapper) => {
+    const buttons = Array.from(wrapper.querySelectorAll('.tab-btn[data-tab-target]'));
+    const panels = Array.from(wrapper.querySelectorAll('.tab-panel'));
+
+    function activateTab(targetId) {
+      buttons.forEach((button) => {
+        const isActive = button.dataset.tabTarget === targetId;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        button.tabIndex = isActive ? 0 : -1;
+      });
+
+      panels.forEach((panel) => {
+        const isActive = panel.id === targetId;
+        panel.classList.toggle('active', isActive);
+        panel.hidden = !isActive;
+      });
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        activateTab(button.dataset.tabTarget);
+      });
+    });
+
+    const initialTab =
+      buttons.find((button) => button.classList.contains('active'))?.dataset.tabTarget ||
+      buttons[0]?.dataset.tabTarget;
+
+    if (initialTab) {
+      activateTab(initialTab);
+    }
+  });
 }
 
 function bindEvents() {
