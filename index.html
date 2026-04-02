@@ -51,49 +51,85 @@
       </div>
       <div id="output" class="output" aria-live="polite"></div>
     </section>
-
 <section class="card">
   <div class="output-header">
-    <h2>Employee ID update from CSV</h2>
+    <h2>Bulk tools</h2>
   </div>
 
-  <form id="csvForm" class="form-grid">
-    <label class="form-span-all">
-      <span>CSV file</span>
-      <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
-    </label>
+  <div class="tabs" data-tabs>
+    <div class="tabs-nav" role="tablist" aria-label="Bulk functionalities">
+      <button
+        type="button"
+        class="tab-btn active"
+        role="tab"
+        id="tab-btn-users"
+        aria-selected="true"
+        aria-controls="tab-users"
+        data-tab-target="tab-users"
+      >
+        Bulk users
+      </button>
 
-    <div class="form-actions">
-      <button id="runCsvBtn" type="submit">Process CSV</button>
+      <button
+        type="button"
+        class="tab-btn"
+        role="tab"
+        id="tab-btn-schedules"
+        aria-selected="false"
+        aria-controls="tab-schedules"
+        data-tab-target="tab-schedules"
+      >
+        Bulk schedules
+      </button>
     </div>
-  </form>
 
-  <p class="section-note">
-    Expected headers: <code>Email</code> and <code>Matricula</code>.
-  </p>
-</section>
+    <div
+      id="tab-users"
+      class="tab-panel active"
+      role="tabpanel"
+      aria-labelledby="tab-btn-users"
+    >
+      <form id="csvForm" class="form-grid">
+        <label class="form-span-all">
+          <span>CSV file</span>
+          <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
+        </label>
 
-<section class="card">
-  <div class="output-header">
-    <h2>Bulk schedule creation from CSV</h2>
+        <div class="form-actions">
+          <button id="runCsvBtn" type="submit">Process CSV</button>
+        </div>
+      </form>
+
+      <p class="section-note">
+        Expected headers: <code>Email</code> and <code>Matricula</code>.
+      </p>
+    </div>
+
+    <div
+      id="tab-schedules"
+      class="tab-panel"
+      role="tabpanel"
+      aria-labelledby="tab-btn-schedules"
+      hidden
+    >
+      <form id="scheduleCsvForm" class="form-grid">
+        <label class="form-span-all">
+          <span>CSV file</span>
+          <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
+        </label>
+
+        <div class="form-actions">
+          <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
+        </div>
+      </form>
+
+      <p class="section-note">
+        Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
+        Format for <code>Schedule</code>: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
+        No blank spaces
+      </p>
+    </div>
   </div>
-
-  <form id="scheduleCsvForm" class="form-grid">
-    <label class="form-span-all">
-      <span>CSV file</span>
-      <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
-    </label>
-
-    <div class="form-actions">
-      <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
-    </div>
-  </form>
-
-  <p class="section-note">
-    Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
-    Format for <code>Schedule</code>: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
-    No blank spaces.
-  </p>
 </section>
     
   </main>
