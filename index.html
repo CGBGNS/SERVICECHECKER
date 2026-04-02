@@ -72,6 +72,29 @@
     Expected headers: <code>Email</code> and <code>Matricula</code>.
   </p>
 </section>
+
+<section class="card">
+  <div class="output-header">
+    <h2>Bulk schedule creation from CSV</h2>
+  </div>
+
+  <form id="scheduleCsvForm" class="form-grid">
+    <label class="form-span-all">
+      <span>CSV file</span>
+      <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
+    </label>
+
+    <div class="form-actions">
+      <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
+    </div>
+  </form>
+
+  <p class="section-note">
+    Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
+    Format for <code>Schedule</code>: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
+    No blank spaces.
+  </p>
+</section>
     
   </main>
 
