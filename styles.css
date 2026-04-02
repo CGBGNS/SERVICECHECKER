@@ -279,7 +279,7 @@ input[type="file"] {
 }
 
 .tab-btn.active {
-  background: #2563eb !important;
+  background: RGB(0,0,0) !important;
   color: #ffffff !important;
   border-color: #1d4ed8 !important;
 }
