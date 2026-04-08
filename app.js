@@ -58,7 +58,13 @@ const COUNTRY_CONFIG = {
   ARG: { label: 'Argentina', configured: false },
   PER: { label: 'Peru', configured: false },
   CHL: { label: 'Chile', configured: false },
-  MEX: { label: 'Mexico', configured: false },
+  MEX: { 
+    label: 'Mexico',
+    configured: true,
+    datatableIdConfig: '5e36ee83-253f-4495-9e39-d3671e3f72d9',
+    datatableIdRouting: '8ed36ead-e5b8-4a28-ace6-9dd500b3e050',
+    langAudio: 'es-mx'
+       },
   TST: { label: 'Test',
         configured: false
        }
