@@ -1084,7 +1084,9 @@ async function processCsvUserRow(row, rowNumber) {
     },
     version: matchedUser.version
   };
-
+  
+await new Promise(resolve => setTimeout(resolve, 1000));
+  
   const updateResponse = await apiPatch(
     `/api/v2/users/${encodeURIComponent(matchedUser.id)}`,
     patchBody
