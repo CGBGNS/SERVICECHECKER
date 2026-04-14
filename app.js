@@ -562,7 +562,7 @@ async function validatePrompt(promptName, label, expectedLanguage, options = {})
     return false;
   }
 
-  logSuccess(`${label} OK`);
+  logSuccess(`${label} ${promptName} OK`);
   return true;
 }
 
@@ -583,7 +583,7 @@ function validateAction(label, action, { required = false } = {}) {
     return false;
   }
 
-  logSuccess(`${label} OK`);
+  logSuccess(`${label} ${action} OK`);
   return true;
 }
 
