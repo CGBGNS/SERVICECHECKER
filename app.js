@@ -522,7 +522,7 @@ async function validateNamedEntity({ label, path, name }) {
     return false;
   }
 
-  logSuccess(`${label} OK`);
+  logSuccess(`${label} ${name} OK`);
   return true;
 }
 
