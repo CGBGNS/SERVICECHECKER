@@ -81,6 +81,18 @@
       >
         Bulk Schedules
       </button>
+
+       <button
+        type="button"
+        class="tab-btn"
+        role="tab"
+        id="tab-btn-contacts"
+        aria-selected="false"
+        aria-controls="tab-contacts"
+        data-tab-target="tab-contacts"
+      >
+        Bulk External Contacts
+      </button>
     </div>
 
     <div
@@ -129,12 +141,35 @@
         No blank spaces
       </p>
     </div>
+
+     <div
+      id="tab-contacts"
+      class="tab-panel"
+      role="tabpanel"
+      aria-labelledby="tab-btn-contacts"
+      hidden
+    >
+      <form id="ExternalContactCsvForm" class="form-grid">
+        <label class="form-span-all">
+          <span>CSV file</span>
+          <input id="ExternalContactCsvFile" name="ExternalContactCsvFile" type="file" accept=".csv,text/csv" required>
+        </label>
+
+        <div class="form-actions">
+          <button id="runExternalContactCsvBtn" type="submit">Process External Contact CSV</button>
+        </div>
+      </form>
+
+      <p class="section-note">
+        Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
+      </p>
+    </div>
   </div>
 </section>
     
   </main>
 
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
