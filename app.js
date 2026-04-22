@@ -86,7 +86,10 @@ const elements = {
   runCsvBtn: document.getElementById('runCsvBtn'),
   scheduleCsvForm: document.getElementById('scheduleCsvForm'),
   scheduleCsvFile: document.getElementById('scheduleCsvFile'),
-  runScheduleCsvBtn: document.getElementById('runScheduleCsvBtn')
+  runScheduleCsvBtn: document.getElementById('runScheduleCsvBtn'),
+  ExternalContactCsvForm: document.getElementById('ExternalContactCsvForm'),
+  ExternalContactCsvFile: document.getElementById('ExternalContactCsvFile'),
+  runExternalContactCsvBtn: document.getElementById('runExternalContactCsvBtn')
 };
 
 if (document.readyState === 'loading') {
@@ -153,10 +156,14 @@ function setBusy(isBusy) {
     elements.csvFile,
     elements.runCsvBtn,
     elements.scheduleCsvFile,
-    elements.runScheduleCsvBtn
-  ].filter(Boolean).forEach((element) => {
-    element.disabled = isBusy;
-  });
+    elements.ExternalContactCsvFile,
+    elements.runScheduleCsvBtn,
+    elements.runExternalContactCsvBtn
+  ]
+    .filter(Boolean)
+    .forEach((element) => {
+      element.disabled = isBusy;
+    });
 }
 
 function setAuthStatus(text, kind) {
@@ -1394,6 +1401,129 @@ async function processScheduleCsvFile(file) {
   }
 }
 
+
+async function processExternalContactCsvRow(row, rowNumber) {
+  const divisionName = getRowValueByHeader(row, ['Division']);
+  const firstName = getRowValueByHeader(row, ['firstName']);
+  const lastName = getRowValueByHeader(row, ['lastName']);
+   const workPhone = getRowValueByHeader(row, ['workPhone']);
+   const countryCode = getRowValueByHeader(row, ['countryCode']);
+
+  if (!divisionName) {
+    logWarning(`Row ${rowNumber}: Division empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!firstName) {
+    logWarning(`Row ${rowNumber}: firstName empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!lastName) {
+    logWarning(`Row ${rowNumber}: lastName empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+   if (!workPhone) {
+    logWarning(`Row ${rowNumber}: workPhone empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+   if (!countryCode) {
+    logWarning(`Row ${rowNumber}: countryCode empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  logInfo(`Row ${rowNumber}: processing Contact "${firstName} ${lastName}"`);
+
+  const divisionLookup = await findDivisionByName(divisionName);
+
+  if (!divisionLookup.ok) {
+    logError(`Row ${rowNumber}: ${divisionLookup.message}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  const division = divisionLookup.division;
+
+const requestBody =  {
+    firstName: firstName,
+    lastName: lastName,
+    division:{
+     id: division.id },
+    workPhone:{
+      display: workPhone,
+      countryCode: countryCode,
+      normalizationCountryCode: countryCode}
+}
+
+
+  logInfo(`Row ${rowNumber}: creating Contact "${firstName} ${lastName}"`);
+
+  const createResponse = await apiPost('/api/v2/externalcontacts/contacts', requestBody);
+
+  if (!createResponse.ok) {
+    logError(`Row ${rowNumber}: Failure ${createResponse.status} - ${createResponse.statusText} - ${createResponse.raw || ''}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  logSuccess(`Row ${rowNumber}: External contact created: "${firstName} ${lastName}"`);
+  return { created: 1, skipped: 0, failed: 0 };
+}
+
+async function processExternalContactCsvFile(file) {
+  clearOutput();
+  updateSummary('Processing External Contacts CSV...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rows = parseCsvText(text);
+
+    if (!rows.length) {
+      logError('The External Contacts CSV file is empty or could not be parsed.');
+      updateSummary('Stopped: no rows found.');
+      return;
+    }
+
+    if (
+      !hasCsvHeader(rows, ['Division']) ||
+      !hasCsvHeader(rows, ['firstName']) ||
+      !hasCsvHeader(rows, ['lastName']) ||
+      !hasCsvHeader(rows, ['workPhone']) ||
+      !hasCsvHeader(rows, ['countryCode'])
+    ) {
+      logError('CSV must contain the headers Division, firstName, lastName, workPhone and countryCode.');
+      updateSummary('Stopped: invalid CSV headers.');
+      return;
+    }
+
+    logInfo(`CSV loaded: ${file.name}`);
+    logInfo(`Rows to process: ${rows.length}`);
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const result = await processExternalContactCsvRow(rows[index], index + 2);
+      created += result.created;
+      skipped += result.skipped;
+      failed += result.failed;
+    }
+
+    logInfo('External Contacts CSV processing completed.');
+    updateSummary(`External Contacts CSV finished: ${created} created, ${skipped} skipped, ${failed} failed.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`External Contacts CSV stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.ExternalContactCsvForm) elements.scheduleCsvForm.reset();
+  }
+}
+
 function initTabs() {
   const tabWrappers = document.querySelectorAll('[data-tabs]');
 
@@ -1455,6 +1585,25 @@ function bindEvents() {
       if (!isAuthenticated) return;
 
       await processScheduleCsvFile(file);
+    });
+  }
+
+if (elements.ExternalContactCsvForm) {
+    elements.ExternalContactCsvForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const file = elements.ExternalContactCsvFile?.files?.[0];
+
+      if (!file) {
+        clearOutput();
+        logError('Select a External Contact CSV file first.');
+        return;
+      }
+
+      const isAuthenticated = await ensureAuthenticated();
+      if (!isAuthenticated) return;
+
+      await processExternalContactCsvFile(file);
     });
   }
   
