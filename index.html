@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Genesys Service Checker</title>
-<link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
   <main class="page">
@@ -51,160 +51,132 @@
       </div>
       <div id="output" class="output" aria-live="polite"></div>
     </section>
-<section class="card">
-  <div class="output-header">
-    <h2>Bulk tools</h2>
-  </div>
 
-  <div class="tabs" data-tabs>
-    <div class="tabs-nav" role="tablist" aria-label="Bulk functionalities">
-      <button
-        type="button"
-        class="tab-btn active"
-        role="tab"
-        id="tab-btn-users"
-        aria-selected="true"
-        aria-controls="tab-users"
-        data-tab-target="tab-users"
-      >
-        Bulk Employee IDs
-      </button>
+    <section class="card">
+      <div class="output-header">
+        <h2>Bulk tools</h2>
+      </div>
 
-      <button
-        type="button"
-        class="tab-btn"
-        role="tab"
-        id="tab-btn-schedules"
-        aria-selected="false"
-        aria-controls="tab-schedules"
-        data-tab-target="tab-schedules"
-      >
-        Bulk Schedules
-      </button>
+      <div class="tabs" data-tabs>
+        <div class="tabs-nav" role="tablist" aria-label="Bulk functionalities">
 
-       <button
-        type="button"
-        class="tab-btn"
-        role="tab"
-        id="tab-btn-contacts"
-        aria-selected="false"
-        aria-controls="tab-contacts"
-        data-tab-target="tab-contacts"
-      >
-        Bulk External Contacts
-      </button>
+          <button type="button" class="tab-btn active"
+            role="tab"
+            id="tab-btn-users"
+            aria-selected="true"
+            aria-controls="tab-users"
+            data-tab-target="tab-users">
+            Bulk Employee IDs
+          </button>
 
-      <button
-        type="button"
-        class="tab-btn"
-        role="tab"
-        id="tab-btn-contacts"
-        aria-selected="false"
-        aria-controls="tab-contacts"
-        data-tab-target="tab-contacts"
-      >
-        Bulk Rol update
-      </button>
-    </div>
+          <button type="button" class="tab-btn"
+            role="tab"
+            id="tab-btn-schedules"
+            aria-selected="false"
+            aria-controls="tab-schedules"
+            data-tab-target="tab-schedules">
+            Bulk Schedules
+          </button>
 
-    <div
-      id="tab-users"
-      class="tab-panel active"
-      role="tabpanel"
-      aria-labelledby="tab-btn-users"
-    >
-      <form id="csvForm" class="form-grid">
-        <label class="form-span-all">
-          <span>CSV file</span>
-          <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
-        </label>
+          <button type="button" class="tab-btn"
+            role="tab"
+            id="tab-btn-contacts"
+            aria-selected="false"
+            aria-controls="tab-contacts"
+            data-tab-target="tab-contacts">
+            Bulk External Contacts
+          </button>
 
-        <div class="form-actions">
-          <button id="runCsvBtn" type="submit">Process CSV</button>
+          <button type="button" class="tab-btn"
+            role="tab"
+            id="tab-btn-roles"
+            aria-selected="false"
+            aria-controls="tab-roles"
+            data-tab-target="tab-roles">
+            Bulk Role Update
+          </button>
+
         </div>
-      </form>
 
-      <p class="section-note">
-        Expected headers: <code>Email</code> and <code>Matricula</code>.
-      </p>
-    </div>
+        <!-- USERS -->
+        <div id="tab-users" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-users">
+          <form id="csvForm" class="form-grid">
+            <label class="form-span-all">
+              <span>CSV file</span>
+              <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
+            </label>
 
-    <div
-      id="tab-schedules"
-      class="tab-panel"
-      role="tabpanel"
-      aria-labelledby="tab-btn-schedules"
-      hidden
-    >
-      <form id="scheduleCsvForm" class="form-grid">
-        <label class="form-span-all">
-          <span>CSV file</span>
-          <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
-        </label>
+            <div class="form-actions">
+              <button id="runCsvBtn" type="submit">Process CSV</button>
+            </div>
+          </form>
 
-        <div class="form-actions">
-          <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
+          <p class="section-note">
+            Expected headers: <code>Email</code> and <code>Matricula</code>.
+          </p>
         </div>
-      </form>
 
-      <p class="section-note">
-        Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
-        Format for <code>Schedule</code>: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
-        No blank spaces
-      </p>
-    </div>
+        <!-- SCHEDULES -->
+        <div id="tab-schedules" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-schedules" hidden>
+          <form id="scheduleCsvForm" class="form-grid">
+            <label class="form-span-all">
+              <span>CSV file</span>
+              <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
+            </label>
 
-     <div
-      id="tab-contacts"
-      class="tab-panel"
-      role="tabpanel"
-      aria-labelledby="tab-btn-contacts"
-      hidden
-    >
-      <form id="ExternalContactCsvForm" class="form-grid">
-        <label class="form-span-all">
-          <span>CSV file</span>
-          <input id="ExternalContactCsvFile" name="ExternalContactCsvFile" type="file" accept=".csv,text/csv" required>
-        </label>
+            <div class="form-actions">
+              <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
+            </div>
+          </form>
 
-        <div class="form-actions">
-          <button id="runExternalContactCsvBtn" type="submit">Process External Contact CSV</button>
+          <p class="section-note">
+            Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
+            Format: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
+          </p>
         </div>
-      </form>
 
-      <p class="section-note">
-        Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
-      </p>
-    </div>
+        <!-- CONTACTS -->
+        <div id="tab-contacts" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-contacts" hidden>
+          <form id="ExternalContactCsvForm" class="form-grid">
+            <label class="form-span-all">
+              <span>CSV file</span>
+              <input id="ExternalContactCsvFile" name="ExternalContactCsvFile" type="file" accept=".csv,text/csv" required>
+            </label>
 
-    <div
-      id="tab-contacts"
-      class="tab-panel"
-      role="tabpanel"
-      aria-labelledby="tab-btn-contacts"
-      hidden
-    >
-      <form id="RolesCsvForm" class="form-grid">
-        <label class="form-span-all">
-          <span>CSV file</span>
-          <input id="RolesCsvFile" name="RolesCsvFile" type="file" accept=".csv,text/csv" required>
-        </label>
+            <div class="form-actions">
+              <button id="runExternalContactCsvBtn" type="submit">Process External Contact CSV</button>
+            </div>
+          </form>
 
-        <div class="form-actions">
-          <button id="runRolesCsvBtn" type="submit">Process Roles CSV</button>
+          <p class="section-note">
+            Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
+          </p>
         </div>
-      </form>
 
-      <p class="section-note">
-        Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
-      </p>
-    </div>
-  </div>
-</section>
-    
+        <!-- ROLES -->
+        <div id="tab-roles" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-roles" hidden>
+          <form id="RolesCsvForm" class="form-grid">
+            <label class="form-span-all">
+              <span>CSV file</span>
+              <input id="RolesCsvFile" name="RolesCsvFile" type="file" accept=".csv,text/csv" required>
+            </label>
+
+            <div class="form-actions">
+              <button id="runRolesCsvBtn" type="submit">Process Roles CSV</button>
+            </div>
+          </form>
+
+          <p class="section-note">
+            Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
   </main>
 
-<script src="config.js?v=7"></script>
-<script src="app.js?v=7"></script>
+  <script src="config.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
