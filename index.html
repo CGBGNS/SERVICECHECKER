@@ -93,6 +93,18 @@
       >
         Bulk External Contacts
       </button>
+
+      <button
+        type="button"
+        class="tab-btn"
+        role="tab"
+        id="tab-btn-contacts"
+        aria-selected="false"
+        aria-controls="tab-contacts"
+        data-tab-target="tab-contacts"
+      >
+        Bulk Rol update
+      </button>
     </div>
 
     <div
@@ -164,12 +176,35 @@
         Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
       </p>
     </div>
+
+    <div
+      id="tab-contacts"
+      class="tab-panel"
+      role="tabpanel"
+      aria-labelledby="tab-btn-contacts"
+      hidden
+    >
+      <form id="RolesCsvForm" class="form-grid">
+        <label class="form-span-all">
+          <span>CSV file</span>
+          <input id="RolesCsvFile" name="RolesCsvFile" type="file" accept=".csv,text/csv" required>
+        </label>
+
+        <div class="form-actions">
+          <button id="runRolesCsvBtn" type="submit">Process Roles CSV</button>
+        </div>
+      </form>
+
+      <p class="section-note">
+        Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
+      </p>
+    </div>
   </div>
 </section>
     
   </main>
 
-<script src="config.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
