@@ -89,7 +89,10 @@ const elements = {
   runScheduleCsvBtn: document.getElementById('runScheduleCsvBtn'),
   ExternalContactCsvForm: document.getElementById('ExternalContactCsvForm'),
   ExternalContactCsvFile: document.getElementById('ExternalContactCsvFile'),
-  runExternalContactCsvBtn: document.getElementById('runExternalContactCsvBtn')
+  runExternalContactCsvBtn: document.getElementById('runExternalContactCsvBtn'),
+  RolesCsvForm: document.getElementById('RolesCsvForm'),
+  RolesCsvFile: document.getElementById('RolesCsvFile'),
+  runRolesCsvBtn: document.getElementById('runRolesCsvBtn')
 };
 
 if (document.readyState === 'loading') {
@@ -158,7 +161,9 @@ function setBusy(isBusy) {
     elements.scheduleCsvFile,
     elements.ExternalContactCsvFile,
     elements.runScheduleCsvBtn,
-    elements.runExternalContactCsvBtn
+    elements.runExternalContactCsvBtn,
+    elements.RolesCsvFile,
+    elements.runRolesCsvBtn
   ]
     .filter(Boolean)
     .forEach((element) => {
@@ -1277,6 +1282,46 @@ async function findDivisionByName(divisionName) {
   return { ok: true, division };
 }
 
+async function findAgentEmail(email) {
+  const value = asTrimmedString(email);
+
+  if (!value) {
+    return { ok: false, message: 'Email empty.' };
+  }
+
+  const requestBody = {
+    query: [
+      {
+        fields: ["email"],
+        value: value,
+        type: "EXACT",
+      }
+    ]
+  };
+
+  const response = await apiPost('/api/v2/users/search', requestBody);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      message: `Email lookup failed (${response.status}) - ${response.raw || response.statusText}`
+    };
+  }
+
+  const result = response.data;
+  
+  if (!result || result.total === 0) {
+    return {
+      ok: false,
+      message: `agent not found: ${value}`
+    };
+  }
+
+  const AgentId = result.results[0].id;
+
+  return { ok: true, AgentId };
+}
+
 async function processScheduleCsvRow(row, rowNumber) {
   const divisionName = getRowValueByHeader(row, ['Division']);
   const scheduleText = getRowValueByHeader(row, ['Schedule']);
@@ -1470,6 +1515,60 @@ const requestBody =  {
   return { created: 1, skipped: 0, failed: 0 };
 }
 
+async function processRolesCsvRow(row, rowNumber) {
+  const divisionName = getRowValueByHeader(row, ['Division']);
+  const email = getRowValueByHeader(row, ['email']);
+  const roleId = getRowValueByHeader(row, ['RoleId']);
+
+  if (!divisionName) {
+    logWarning(`Row ${rowNumber}: Division empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!email) {
+    logWarning(`Row ${rowNumber}: email empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  if (!roleId) {
+    logWarning(`Row ${rowNumber}: RoleId empty. Skipped.`);
+    return { created: 0, skipped: 1, failed: 0 };
+  }
+
+  logInfo(`Row ${rowNumber}: processing role for agent "${email}"`);
+
+  const divisionLookup = await findDivisionByName(divisionName);
+  if (!divisionLookup.ok) {
+    logError(`Row ${rowNumber}: ${divisionLookup.message}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  const emailLookup = await findAgentEmail(email);
+  if (!emailLookup.ok) {
+    logError(`Row ${rowNumber}: ${emailLookup.message}`);
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  const divisionId = divisionLookup.division.id || divisionLookup.division;
+  const agentId = emailLookup.AgentId;
+
+  logInfo(`Row ${rowNumber}: Adding role "${roleId}" to agent "${email}"`);
+
+  const createResponse = await apiPost(
+    `/api/v2/authorization/subjects/${agentId}/divisions/${divisionId}/roles/${roleId}`
+  );
+
+  if (!createResponse.ok) {
+    logError(
+      `Row ${rowNumber}: Failure ${createResponse.status} - ${createResponse.statusText} - ${createResponse.raw || ''}`
+    );
+    return { created: 0, skipped: 0, failed: 1 };
+  }
+
+  logSuccess(`Row ${rowNumber}: Role assigned to "${email}"`);
+  return { created: 1, skipped: 0, failed: 0 };
+}
+
 async function processExternalContactCsvFile(file) {
   clearOutput();
   updateSummary('Processing External Contacts CSV...');
@@ -1521,6 +1620,58 @@ async function processExternalContactCsvFile(file) {
     refreshAuthState();
     setBusy(false);
     if (elements.ExternalContactCsvForm) elements.scheduleCsvForm.reset();
+  }
+}
+
+async function processRolesCsvFile(file) {
+  clearOutput();
+  updateSummary('Processing Roles CSV...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rows = parseCsvText(text);
+
+    if (!rows.length) {
+      logError('The Roles CSV file is empty or could not be parsed.');
+      updateSummary('Stopped: no rows found.');
+      return;
+    }
+
+    if (
+      !hasCsvHeader(rows, ['email']) ||
+      !hasCsvHeader(rows, ['Division']) ||
+      !hasCsvHeader(rows, ['roleId']) 
+    ) {
+      logError('CSV must contain the headers Division, email and RoleId.');
+      updateSummary('Stopped: invalid CSV headers.');
+      return;
+    }
+
+    logInfo(`CSV loaded: ${file.name}`);
+    logInfo(`Rows to process: ${rows.length}`);
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const result = await processRolesCsvRow(rows[index], index + 2);
+      created += result.created;
+      skipped += result.skipped;
+      failed += result.failed;
+    }
+
+    logInfo('Roles CSV processing completed.');
+    updateSummary(`Roles CSV finished: ${created} created, ${skipped} skipped, ${failed} failed.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Roles CSV stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.RolesCsvForm) elements.RolesCsvForm.reset();
   }
 }
 
