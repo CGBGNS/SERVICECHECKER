@@ -1,5 +1,6 @@
+// Runtime settings. The OAuth Client ID is intentionally NOT stored here:
+// it is entered manually in the sign-in dialog each time you sign in.
 window.APP_CONFIG = {
-  clientId: '8e43d237-60ba-4f7a-b41f-cda36f779cab',
   environment: 'mypurecloud.de',
   redirectUri: 'https://cgbgns.github.io/SERVICECHECKER/index.html',
   scopes: []
