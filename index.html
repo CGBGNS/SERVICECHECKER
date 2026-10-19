@@ -3,29 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
-  <main class="page">
-    <header class="hero">
-      <h1>Genesys Service Checker</h1>
-    </header>
-
-    <section class="card">
-      <div class="toolbar">
-        <div>
-          <strong>Status:</strong>
-          <span id="authStatus" class="status-pill status-idle">Not signed in</span>
-        </div>
-        <div class="toolbar-actions">
-          <button id="loginBtn" type="button">Sign in</button>
-          <button id="logoutBtn" type="button" class="secondary">Sign out</button>
-          <button id="clearBtn" type="button" class="secondary">Clear output</button>
-        </div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </span>
+        <h1>Genesys Service Checker</h1>
       </div>
 
-      <form id="checkerForm" class="form-grid">
+      <div class="session">
+        <span id="authStatus" class="status-pill status-idle" role="status">Not signed in</span>
+        <button id="loginBtn" type="button">Sign in</button>
+        <button id="logoutBtn" type="button" class="secondary">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+
+    <!-- CHECK A SERVICE -->
+    <section class="panel area-check" aria-labelledby="check-title">
+      <h2 id="check-title">Check a service</h2>
+      <p class="panel-intro">Reads the service from the config and routing datatables and validates every linked item.</p>
+
+      <form id="checkerForm" class="stack">
         <label>
           <span>Country</span>
           <select id="country" required>
@@ -35,27 +42,43 @@
 
         <label>
           <span>Service</span>
-          <input id="service" name="service" type="text" placeholder="Enter the service row key" required autocomplete="off">
+          <input id="service" name="service" type="text" placeholder="Enter the service row key" required autocomplete="off" spellcheck="false">
         </label>
 
-        <div class="form-actions">
-          <button id="runBtn" type="submit">Start process</button>
+        <div class="actions">
+          <button id="runBtn" type="submit">Run checks</button>
         </div>
       </form>
     </section>
 
-    <section class="card">
-      <div class="output-header">
-        <h2>Output</h2>
-        <span id="summary" class="summary"></span>
+    <!-- OUTPUT -->
+    <section class="panel output-panel area-output" aria-labelledby="output-title">
+      <div class="output-head">
+        <h2 id="output-title">Output</h2>
+
+        <div class="counts" aria-label="Result counts">
+          <span class="count count-ok"><b id="countOk">0</b> <span>ok</span></span>
+          <span class="count count-warn"><b id="countWarn">0</b> <span data-one="warning" data-many="warnings">warnings</span></span>
+          <span class="count count-err"><b id="countErr">0</b> <span data-one="error" data-many="errors">errors</span></span>
+        </div>
+
+        <div class="output-tools">
+          <label class="toggle">
+            <input id="issuesOnly" type="checkbox">
+            <span>Only warnings and errors</span>
+          </label>
+          <button id="copyBtn" type="button" class="secondary small">Copy</button>
+          <button id="clearBtn" type="button" class="secondary small">Clear output</button>
+        </div>
       </div>
-      <div id="output" class="output" aria-live="polite"></div>
+
+      <p id="summary" class="summary" role="status"></p>
+      <div id="output" class="output" aria-live="polite" aria-label="Check results"></div>
     </section>
 
-    <section class="card">
-      <div class="output-header">
-        <h2>Bulk tools</h2>
-      </div>
+    <!-- BULK TOOLS -->
+    <section class="panel area-bulk" aria-labelledby="bulk-title">
+      <h2 id="bulk-title">Bulk tools</h2>
 
       <div class="tabs" data-tabs>
         <div class="tabs-nav" role="tablist" aria-label="Bulk functionalities">
@@ -66,7 +89,7 @@
             aria-selected="true"
             aria-controls="tab-users"
             data-tab-target="tab-users">
-            Bulk Employee IDs
+            Employee IDs
           </button>
 
           <button type="button" class="tab-btn"
@@ -75,7 +98,7 @@
             aria-selected="false"
             aria-controls="tab-schedules"
             data-tab-target="tab-schedules">
-            Bulk Schedules
+            Schedules
           </button>
 
           <button type="button" class="tab-btn"
@@ -84,7 +107,7 @@
             aria-selected="false"
             aria-controls="tab-contacts"
             data-tab-target="tab-contacts">
-            Bulk External Contacts
+            External contacts
           </button>
 
           <button type="button" class="tab-btn"
@@ -93,82 +116,82 @@
             aria-selected="false"
             aria-controls="tab-roles"
             data-tab-target="tab-roles">
-            Bulk Role Update
+            Role update
           </button>
 
         </div>
 
         <!-- USERS -->
         <div id="tab-users" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-users">
-          <form id="csvForm" class="form-grid">
-            <label class="form-span-all">
+          <form id="csvForm" class="stack">
+            <label>
               <span>CSV file</span>
               <input id="csvFile" name="csvFile" type="file" accept=".csv,text/csv" required>
             </label>
 
-            <div class="form-actions">
+            <p class="section-note">
+              Expected headers: <code>Email</code> and <code>Matricula</code>.
+            </p>
+
+            <div class="actions">
               <button id="runCsvBtn" type="submit">Process CSV</button>
             </div>
           </form>
-
-          <p class="section-note">
-            Expected headers: <code>Email</code> and <code>Matricula</code>.
-          </p>
         </div>
 
         <!-- SCHEDULES -->
         <div id="tab-schedules" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-schedules" hidden>
-          <form id="scheduleCsvForm" class="form-grid">
-            <label class="form-span-all">
+          <form id="scheduleCsvForm" class="stack">
+            <label>
               <span>CSV file</span>
               <input id="scheduleCsvFile" name="scheduleCsvFile" type="file" accept=".csv,text/csv" required>
             </label>
 
-            <div class="form-actions">
+            <p class="section-note">
+              Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
+              Format: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
+            </p>
+
+            <div class="actions">
               <button id="runScheduleCsvBtn" type="submit">Process schedules CSV</button>
             </div>
           </form>
-
-          <p class="section-note">
-            Expected headers: <code>Division</code>, <code>Schedule</code>, <code>Nombre</code>.
-            Format: <code>monday-friday:0900-1800</code> or <code>sunday:1000-1400</code>.
-          </p>
         </div>
 
         <!-- CONTACTS -->
         <div id="tab-contacts" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-contacts" hidden>
-          <form id="ExternalContactCsvForm" class="form-grid">
-            <label class="form-span-all">
+          <form id="ExternalContactCsvForm" class="stack">
+            <label>
               <span>CSV file</span>
               <input id="ExternalContactCsvFile" name="ExternalContactCsvFile" type="file" accept=".csv,text/csv" required>
             </label>
 
-            <div class="form-actions">
+            <p class="section-note">
+              Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
+            </p>
+
+            <div class="actions">
               <button id="runExternalContactCsvBtn" type="submit">Process External Contact CSV</button>
             </div>
           </form>
-
-          <p class="section-note">
-            Expected headers: <code>Division</code>, <code>firstName</code>, <code>lastName</code>, <code>workPhone</code>, <code>countryCode</code>.
-          </p>
         </div>
 
         <!-- ROLES -->
         <div id="tab-roles" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-roles" hidden>
-          <form id="RolesCsvForm" class="form-grid">
-            <label class="form-span-all">
+          <form id="RolesCsvForm" class="stack">
+            <label>
               <span>CSV file</span>
               <input id="RolesCsvFile" name="RolesCsvFile" type="file" accept=".csv,text/csv" required>
             </label>
 
-            <div class="form-actions">
+            <p class="section-note">
+              Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
+            </p>
+
+            <div class="actions">
               <button id="runRolesCsvBtn" type="submit">Process Roles CSV</button>
             </div>
           </form>
-
-          <p class="section-note">
-            Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
-          </p>
         </div>
 
       </div>
@@ -176,7 +199,44 @@
 
   </main>
 
-  <script src="config.js?v=7"></script>
-  <script src="app.js?v=7"></script>
+  <!-- SIGN-IN DIALOG: the OAuth Client ID is typed here, never stored in the repository -->
+  <dialog id="loginDialog" aria-labelledby="login-title" aria-describedby="login-desc">
+    <form id="loginForm" class="dialog-body" novalidate>
+      <h2 id="login-title">Sign in to Genesys Cloud</h2>
+      <p id="login-desc" class="panel-intro">
+        Enter the Client ID of your OAuth client (Authorization Code grant with PKCE).
+        It is used only for this sign-in and is cleared afterwards.
+      </p>
+
+      <label>
+        <span>Client ID</span>
+        <input id="clientIdInput" name="clientId" type="text"
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          autocomplete="off" autocapitalize="off" spellcheck="false"
+          aria-describedby="clientIdError" aria-invalid="false" required>
+      </label>
+      <p id="clientIdError" class="field-error" role="alert" hidden></p>
+
+      <dl class="facts">
+        <div>
+          <dt>Environment</dt>
+          <dd id="loginEnv"></dd>
+        </div>
+        <div>
+          <dt>Redirect URI</dt>
+          <dd id="loginRedirect"></dd>
+        </div>
+      </dl>
+      <p class="section-note">The redirect URI above must be registered on the OAuth client.</p>
+
+      <div class="actions dialog-actions">
+        <button id="cancelLoginBtn" type="button" class="secondary">Cancel</button>
+        <button id="confirmLoginBtn" type="submit">Continue to Genesys Cloud</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="config.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
