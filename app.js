@@ -5,8 +5,12 @@ const STORAGE_KEYS = {
   tokenType: 'genesysChecker.tokenType',
   expiresAt: 'genesysChecker.expiresAt',
   pkceVerifier: 'genesysChecker.pkceVerifier',
-  oauthState: 'genesysChecker.oauthState'
+  oauthState: 'genesysChecker.oauthState',
+  // Only kept while the browser is redirected to Genesys Cloud and back.
+  clientId: 'genesysChecker.clientId'
 };
+
+const CLIENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VOICE_ACTIONS = [
   'Continue',
@@ -72,6 +76,18 @@ const COUNTRY_CONFIG = {
 
 const elements = {
   authStatus: document.getElementById('authStatus'),
+  loginDialog: document.getElementById('loginDialog'),
+  loginForm: document.getElementById('loginForm'),
+  clientIdInput: document.getElementById('clientIdInput'),
+  clientIdError: document.getElementById('clientIdError'),
+  cancelLoginBtn: document.getElementById('cancelLoginBtn'),
+  loginEnv: document.getElementById('loginEnv'),
+  loginRedirect: document.getElementById('loginRedirect'),
+  countOk: document.getElementById('countOk'),
+  countWarn: document.getElementById('countWarn'),
+  countErr: document.getElementById('countErr'),
+  copyBtn: document.getElementById('copyBtn'),
+  issuesOnly: document.getElementById('issuesOnly'),
   loginBtn: document.getElementById('loginBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   clearBtn: document.getElementById('clearBtn'),
@@ -103,20 +119,65 @@ if (document.readyState === 'loading') {
 
 const counters = {
   errors: 0,
-  warnings: 0
+  warnings: 0,
+  success: 0
 };
+
+const LOG_ICONS = { info: 'i', success: '\u2713', warning: '!', error: '\u2715' };
+const LOG_LABELS = { info: 'Info', success: 'OK', warning: 'Warning', error: 'Error' };
 
 function nowText() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function renderCounters() {
+  const items = [
+    [elements.countOk, counters.success],
+    [elements.countWarn, counters.warnings],
+    [elements.countErr, counters.errors]
+  ];
+
+  for (const [element, value] of items) {
+    if (!element) continue;
+    element.textContent = String(value);
+    element.parentElement.classList.toggle('has-value', value > 0);
+
+    const label = element.nextElementSibling;
+    if (label && label.dataset.one) {
+      label.textContent = value === 1 ? label.dataset.one : label.dataset.many;
+    }
+  }
+}
+
 function appendLog(message, level = 'info') {
   if (level === 'error') counters.errors += 1;
   if (level === 'warning') counters.warnings += 1;
+  if (level === 'success') counters.success += 1;
+  renderCounters();
 
+  const time = nowText();
   const line = document.createElement('div');
   line.className = `log-line log-${level}`;
-  line.textContent = `[${nowText()}] ${message}`;
+  line.dataset.plain = `[${time}] ${(LOG_LABELS[level] || level).toUpperCase()}: ${message}`;
+
+  const timeEl = document.createElement('span');
+  timeEl.className = 'log-time';
+  timeEl.textContent = time;
+
+  const icon = document.createElement('span');
+  icon.className = 'log-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = LOG_ICONS[level] || LOG_ICONS.info;
+
+  const label = document.createElement('span');
+  label.className = 'sr-only';
+  label.textContent = `${LOG_LABELS[level] || level}: `;
+
+  const text = document.createElement('span');
+  text.className = 'log-msg';
+  text.textContent = message;
+
+  line.append(timeEl, icon, label, text);
   elements.output.appendChild(line);
   elements.output.scrollTop = elements.output.scrollHeight;
 }
@@ -141,7 +202,25 @@ function clearOutput() {
   elements.output.innerHTML = '';
   counters.errors = 0;
   counters.warnings = 0;
+  counters.success = 0;
+  renderCounters();
   elements.summary.textContent = '';
+}
+
+async function copyOutput() {
+  const lines = Array.from(elements.output.querySelectorAll('.log-line')).map((line) => line.dataset.plain || line.textContent);
+  if (!lines.length) return;
+
+  const original = elements.copyBtn.textContent;
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    elements.copyBtn.textContent = 'Copied';
+  } catch {
+    elements.copyBtn.textContent = 'Copy failed';
+  }
+  setTimeout(() => {
+    elements.copyBtn.textContent = original;
+  }, 1500);
 }
 
 function updateSummary(text = '') {
@@ -183,7 +262,6 @@ function isPlaceholder(value) {
 function validateAppConfig() {
   const missing = [];
 
-  if (isPlaceholder(APP_CONFIG.clientId)) missing.push('clientId');
   if (isPlaceholder(APP_CONFIG.environment)) missing.push('environment');
   if (isPlaceholder(APP_CONFIG.redirectUri)) missing.push('redirectUri');
 
@@ -264,6 +342,7 @@ function clearStoredToken() {
 function clearPkceState() {
   sessionStorage.removeItem(STORAGE_KEYS.pkceVerifier);
   sessionStorage.removeItem(STORAGE_KEYS.oauthState);
+  sessionStorage.removeItem(STORAGE_KEYS.clientId);
 }
 
 function getAuthorizationHeaders() {
@@ -278,8 +357,13 @@ function getAuthorizationHeaders() {
   };
 }
 
-async function startLogin() {
+async function startLogin(clientId) {
   if (!validateAppConfig()) return;
+
+  const cleanClientId = asTrimmedString(clientId);
+  if (!CLIENT_ID_PATTERN.test(cleanClientId)) {
+    throw new Error('Enter a valid Client ID (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).');
+  }
 
   const verifier = randomString(64);
   const state = randomString(24);
@@ -287,10 +371,11 @@ async function startLogin() {
 
   sessionStorage.setItem(STORAGE_KEYS.pkceVerifier, verifier);
   sessionStorage.setItem(STORAGE_KEYS.oauthState, state);
+  sessionStorage.setItem(STORAGE_KEYS.clientId, cleanClientId);
 
   const url = new URL(`https://login.${APP_CONFIG.environment}/oauth/authorize`);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('client_id', APP_CONFIG.clientId);
+  url.searchParams.set('client_id', cleanClientId);
   url.searchParams.set('redirect_uri', APP_CONFIG.redirectUri);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -309,9 +394,14 @@ async function exchangeCodeForToken(code) {
     throw new Error('Missing PKCE code verifier in session storage. Start sign in again.');
   }
 
+  const clientId = sessionStorage.getItem(STORAGE_KEYS.clientId);
+  if (!clientId) {
+    throw new Error('Missing Client ID in session storage. Start sign in again.');
+  }
+
   const body = new URLSearchParams();
   body.set('grant_type', 'authorization_code');
-  body.set('client_id', APP_CONFIG.clientId);
+  body.set('client_id', clientId);
   body.set('code_verifier', verifier);
   body.set('code', code);
   body.set('redirect_uri', APP_CONFIG.redirectUri);
@@ -378,6 +468,58 @@ async function handleOAuthCallback() {
     history.replaceState({}, document.title, APP_CONFIG.redirectUri);
     refreshAuthState();
     setBusy(false);
+  }
+}
+
+function openLoginDialog() {
+  if (!validateAppConfig()) return;
+
+  if (elements.loginEnv) elements.loginEnv.textContent = APP_CONFIG.environment;
+  if (elements.loginRedirect) elements.loginRedirect.textContent = APP_CONFIG.redirectUri;
+  setClientIdError('');
+  elements.clientIdInput.value = '';
+
+  if (typeof elements.loginDialog.showModal === 'function') {
+    if (!elements.loginDialog.open) elements.loginDialog.showModal();
+  } else {
+    elements.loginDialog.setAttribute('open', '');
+  }
+  elements.clientIdInput.focus();
+}
+
+function closeLoginDialog() {
+  elements.clientIdInput.value = '';
+  if (typeof elements.loginDialog.close === 'function') {
+    elements.loginDialog.close();
+  } else {
+    elements.loginDialog.removeAttribute('open');
+  }
+}
+
+function setClientIdError(message) {
+  elements.clientIdError.textContent = message;
+  elements.clientIdError.hidden = !message;
+  elements.clientIdInput.setAttribute('aria-invalid', message ? 'true' : 'false');
+}
+
+async function submitLoginDialog(event) {
+  event.preventDefault();
+
+  const clientId = asTrimmedString(elements.clientIdInput.value);
+  if (!clientId) {
+    setClientIdError('Enter the Client ID of your Genesys Cloud OAuth client.');
+    return;
+  }
+  if (!CLIENT_ID_PATTERN.test(clientId)) {
+    setClientIdError('That does not look like a Client ID. It should be a UUID, like the example shown.');
+    return;
+  }
+
+  setClientIdError('');
+  try {
+    await startLogin(clientId);
+  } catch (err) {
+    setClientIdError(err.message || String(err));
   }
 }
 
@@ -937,8 +1079,8 @@ async function ensureAuthenticated() {
     return true;
   }
 
-  logInfo('No valid browser session found. Redirecting to Genesys Cloud sign-in...');
-  await startLogin();
+  logInfo('No valid browser session found. Enter your Client ID to sign in, then run the action again.');
+  openLoginDialog();
   return false;
 }
 function hasCsvHeader(rows, headerNames) {
@@ -1697,9 +1839,23 @@ function initTabs() {
       });
     }
 
-    buttons.forEach((button) => {
+    buttons.forEach((button, index) => {
       button.addEventListener('click', () => {
         activateTab(button.dataset.tabTarget);
+      });
+
+      button.addEventListener('keydown', (event) => {
+        const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' };
+        if (!(event.key in keys)) return;
+        event.preventDefault();
+
+        let nextIndex = index;
+        if (keys[event.key] === 'first') nextIndex = 0;
+        else if (keys[event.key] === 'last') nextIndex = buttons.length - 1;
+        else nextIndex = (index + keys[event.key] + buttons.length) % buttons.length;
+
+        activateTab(buttons[nextIndex].dataset.tabTarget);
+        buttons[nextIndex].focus();
       });
     });
 
@@ -1714,11 +1870,48 @@ function initTabs() {
 }
 
 function bindEvents() {
-  elements.loginBtn.addEventListener('click', async () => {
-    clearOutput();
-    logInfo('Starting sign-in...');
-    await startLogin();
+  elements.loginBtn.addEventListener('click', () => {
+    openLoginDialog();
   });
+
+  elements.loginForm.addEventListener('submit', submitLoginDialog);
+
+  elements.cancelLoginBtn.addEventListener('click', () => {
+    closeLoginDialog();
+  });
+
+  elements.loginDialog.addEventListener('close', () => {
+    elements.clientIdInput.value = '';
+  });
+
+  elements.clientIdInput.addEventListener('input', () => {
+    if (!elements.clientIdError.hidden) setClientIdError('');
+  });
+
+  elements.copyBtn.addEventListener('click', copyOutput);
+
+  elements.issuesOnly.addEventListener('change', () => {
+    elements.output.classList.toggle('only-issues', elements.issuesOnly.checked);
+  });
+
+  if (elements.RolesCsvForm) {
+    elements.RolesCsvForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const file = elements.RolesCsvFile?.files?.[0];
+
+      if (!file) {
+        clearOutput();
+        logError('Select a Roles CSV file first.');
+        return;
+      }
+
+      const isAuthenticated = await ensureAuthenticated();
+      if (!isAuthenticated) return;
+
+      await processRolesCsvFile(file);
+    });
+  }
   
   if (elements.scheduleCsvForm) {
     elements.scheduleCsvForm.addEventListener('submit', async (event) => {
@@ -1812,6 +2005,7 @@ async function init() {
   populateCountries();
   bindEvents();
   refreshAuthState();
+  setInterval(refreshAuthState, 15000);
   await handleOAuthCallback();
 }
 
