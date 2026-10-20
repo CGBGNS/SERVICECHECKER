@@ -22,6 +22,15 @@ const VOICE_ACTIONS = [
   'Transfer_number'
 ];
 
+const DNIS_ACTIONS = [
+  'Transfer_number',
+  'Transfer_service',
+  'Transfer_flow',
+  'BPO',
+  'Callback',
+  'Disconnect'
+];
+
 const COUNTRY_CONFIG = {
   PRT: {
     label: 'Portugal',
@@ -108,6 +117,10 @@ const elements = {
   loginBtn: document.getElementById('loginBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   clearBtn: document.getElementById('clearBtn'),
+  dnisForm: document.getElementById('dnisForm'),
+  dnisCountry: document.getElementById('dnisCountry'),
+  dnisNumber: document.getElementById('dnisNumber'),
+  runDnisBtn: document.getElementById('runDnisBtn'),
   checkerForm: document.getElementById('checkerForm'),
   country: document.getElementById('country'),
   service: document.getElementById('service'),
@@ -252,6 +265,9 @@ function setBusy(isBusy) {
     elements.clearBtn,
     elements.country,
     elements.service,
+    elements.dnisCountry,
+    elements.dnisNumber,
+    elements.runDnisBtn,
     elements.csvFile,
     elements.runCsvBtn,
     elements.scheduleCsvFile,
@@ -298,6 +314,13 @@ function populateCountries() {
     option.textContent = value.configured ? `${code} - ${value.label}` : `${code} - ${value.label} (not configured yet)`;
     option.disabled = !value.configured;
     elements.country.appendChild(option);
+
+    // DNIS lookup only needs the country code ({code}_V_DNIS), so every country is selectable.
+    // A Transfer_service result for a country without service datatables stops with a clear message.
+    const dnisOption = document.createElement('option');
+    dnisOption.value = code;
+    dnisOption.textContent = `${code} - ${value.label}`;
+    elements.dnisCountry.appendChild(dnisOption);
   }
 }
 
@@ -652,14 +675,14 @@ function exactEntityByName(entities, name) {
   return (entities || []).find((entity) => asTrimmedString(entity?.name) === target) || null;
 }
 
-async function getDatatableRow(datatableId, rowKey, label) {
+async function getDatatableRow(datatableId, rowKey, label, keyLabel = 'service') {
   const response = await apiGet(`/api/v2/flows/datatables/${datatableId}/rows/${encodeURIComponent(rowKey)}`, {
     showbrief: 'false'
   });
 
   if (!response.ok) {
     if (response.status === 404) {
-      logError(`${label} row not found for service: ${rowKey}`);
+      logError(`${label} row not found for ${keyLabel}: ${rowKey}`);
     } else {
       logError(`${label} request failed (${response.status}): ${response.raw || response.statusText}`);
     }
@@ -864,8 +887,8 @@ function extractValues(config, routing) {
   };
 }
 
-async function runServiceCheck(countryCode, serviceId) {
-  clearOutput();
+async function runServiceCheck(countryCode, serviceId, { keepOutput = false } = {}) {
+  if (!keepOutput) clearOutput();
   updateSummary('Running checks...');
   setBusy(true);
   refreshAuthState();
@@ -1077,6 +1100,146 @@ async function runServiceCheck(countryCode, serviceId) {
     }
 
     logInfo('Check completed.');
+    updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Stopped with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+  }
+}
+
+function getRowField(row, columnName) {
+  if (!row || typeof row !== 'object') return undefined;
+  const target = columnName.toLowerCase();
+  const key = Object.keys(row).find((candidate) => candidate.toLowerCase() === target);
+  return key === undefined ? undefined : row[key];
+}
+
+async function findDatatableByName(tableName) {
+  const response = await apiGet('/api/v2/flows/datatables', { name: tableName, pageSize: 100 });
+  if (!response.ok) {
+    logError(`Datatable lookup failed (${response.status}): ${response.raw || response.statusText}`);
+    return null;
+  }
+
+  const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+  const match = exactEntityByName(entities, tableName);
+  if (!match) {
+    logError(`Datatable ${tableName} doesn't exist.`);
+    return null;
+  }
+
+  logSuccess(`Datatable ${tableName} found.`);
+  return match;
+}
+
+async function validateFlowByName(flowName) {
+  const value = asTrimmedString(flowName);
+  if (!value) {
+    logError('Flow name empty!');
+    return false;
+  }
+
+  const response = await apiGet('/api/v2/flows', { name: value, pageSize: 100 });
+  if (!response.ok) {
+    logError(`Error Flow request endpoint (${response.status}).`);
+    return false;
+  }
+
+  const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+  const exact = exactEntityByName(entities, value);
+  if (exact) {
+    const type = exact.type ? ` (${exact.type})` : '';
+    logSuccess(`Flow ${value}${type} exists in Architect.`);
+    return true;
+  }
+
+  const sameIgnoringCase = entities.find((entity) => asTrimmedString(entity?.name).toLowerCase() === value.toLowerCase());
+  if (sameIgnoringCase) {
+    logError(`Flow name differs only in letter case. Found: ${sameIgnoringCase.name} / Expected: ${value}.`);
+    return false;
+  }
+
+  logError(`Flow doesn't exist in Architect: ${value}. Please correct before continuing.`);
+  return false;
+}
+
+async function runDnisCheck(countryCode, rawNumber) {
+  clearOutput();
+  updateSummary('Running DNIS check...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const dnis = String(rawNumber || '').replace(/\s+/g, '');
+    const tableName = `${countryCode}_V_DNIS`;
+
+    logInfo(`Starting DNIS check for ${countryCode} / ${dnis}`);
+    logInfo(`Environment: ${APP_CONFIG.environment}`);
+
+    const table = await findDatatableByName(tableName);
+    if (!table) {
+      updateSummary('Stopped: DNIS datatable was not found.');
+      return;
+    }
+
+    const row = await getDatatableRow(table.id, dnis, `Datatable ${tableName}`, 'DNIS');
+    if (!row) {
+      logInfo('The key must match the datatable exactly (for example, with or without a leading +).');
+      updateSummary('Stopped: DNIS was not found.');
+      return;
+    }
+
+    const action = asTrimmedString(getRowField(row, 'action'));
+    const destination = asTrimmedString(getRowField(row, 'destination'));
+
+    logInfo(`DNIS ${dnis} -> action: ${action || '(empty)'} / destination: ${destination || '(empty)'}`);
+
+    if (!action) {
+      logError('DNIS action empty!');
+      updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+      return;
+    }
+
+    if (!DNIS_ACTIONS.includes(action)) {
+      logError(`DNIS action wrong spelling: ${action}. Allowed values: ${DNIS_ACTIONS.join(', ')}.`);
+      updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+      return;
+    }
+
+    logSuccess(`DNIS action ${action} OK`);
+
+    if (action === 'Transfer_service') {
+      if (!destination) {
+        logError('DNIS destination empty! A service is required for Transfer_service.');
+        updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+        return;
+      }
+
+      logInfo(`Destination is a service. Running the service check for ${countryCode} / ${destination}...`);
+      await runServiceCheck(countryCode, destination, { keepOutput: true });
+      return;
+    }
+
+    if (action === 'Transfer_flow') {
+      await validateFlowByName(destination);
+      logInfo('DNIS check completed.');
+      updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+      return;
+    }
+
+    // Transfer_number, BPO, Callback, Disconnect: informational only.
+    if (destination) {
+      logInfo(`Destination (${action}): ${destination}. Not auto-validated; verify it manually.`);
+    } else if (action === 'Disconnect') {
+      logInfo('Disconnect has no destination.');
+    } else {
+      logWarning(`DNIS destination is empty for action ${action}.`);
+    }
+
+    logInfo('DNIS check completed.');
     updateSummary(`Finished with ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
   } catch (err) {
     logError(err.message || String(err));
@@ -1993,6 +2156,30 @@ if (elements.ExternalContactCsvForm) {
     await processCsvFile(file);
   });
   
+  elements.dnisForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const countryCode = asTrimmedString(elements.dnisCountry.value);
+    const dnis = asTrimmedString(elements.dnisNumber.value);
+
+    if (!countryCode) {
+      clearOutput();
+      logError('Select a country first.');
+      return;
+    }
+
+    if (!dnis) {
+      clearOutput();
+      logError('Enter a phone number first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    await runDnisCheck(countryCode, dnis);
+  });
+
   elements.checkerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
 
