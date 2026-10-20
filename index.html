@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -47,6 +47,30 @@
 
         <div class="actions">
           <button id="runBtn" type="submit">Run checks</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- DNIS CHECKER -->
+    <section class="panel area-dnis" aria-labelledby="dnis-title">
+      <h2 id="dnis-title">DNIS checker</h2>
+      <p class="panel-intro">Looks up the number in the country's <code>{country}_V_DNIS</code> datatable and checks where it routes.</p>
+
+      <form id="dnisForm" class="stack">
+        <label>
+          <span>Country</span>
+          <select id="dnisCountry" required>
+            <option value="">Select a country</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Phone number</span>
+          <input id="dnisNumber" name="dnisNumber" type="text" inputmode="tel" placeholder="Enter the DNIS exactly as in the datatable" required autocomplete="off" spellcheck="false">
+        </label>
+
+        <div class="actions">
+          <button id="runDnisBtn" type="submit">Check DNIS</button>
         </div>
       </form>
     </section>
@@ -236,7 +260,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="config.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
