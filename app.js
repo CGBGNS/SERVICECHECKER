@@ -126,9 +126,17 @@ const elements = {
   ExternalContactCsvForm: document.getElementById('ExternalContactCsvForm'),
   ExternalContactCsvFile: document.getElementById('ExternalContactCsvFile'),
   runExternalContactCsvBtn: document.getElementById('runExternalContactCsvBtn'),
-  RolesCsvForm: document.getElementById('RolesCsvForm'),
-  RolesCsvFile: document.getElementById('RolesCsvFile'),
-  runRolesCsvBtn: document.getElementById('runRolesCsvBtn')
+  roleAssignForm: document.getElementById('roleAssignForm'),
+  divisionSelect: document.getElementById('divisionSelect'),
+  divisionFilter: document.getElementById('divisionFilter'),
+  divisionsStatus: document.getElementById('divisionsStatus'),
+  reloadDivisionsBtn: document.getElementById('reloadDivisionsBtn'),
+  roleSelect: document.getElementById('roleSelect'),
+  roleFilter: document.getElementById('roleFilter'),
+  rolesStatus: document.getElementById('rolesStatus'),
+  reloadRolesBtn: document.getElementById('reloadRolesBtn'),
+  rolesEmailsFile: document.getElementById('rolesEmailsFile'),
+  runRoleAssignBtn: document.getElementById('runRoleAssignBtn')
 };
 
 if (document.readyState === 'loading') {
@@ -264,8 +272,14 @@ function setBusy(isBusy) {
     elements.ExternalContactCsvFile,
     elements.runScheduleCsvBtn,
     elements.runExternalContactCsvBtn,
-    elements.RolesCsvFile,
-    elements.runRolesCsvBtn,
+    elements.divisionSelect,
+    elements.divisionFilter,
+    elements.reloadDivisionsBtn,
+    elements.roleSelect,
+    elements.roleFilter,
+    elements.reloadRolesBtn,
+    elements.rolesEmailsFile,
+    elements.runRoleAssignBtn,
     elements.groupSelect,
     elements.groupFilter,
     elements.reloadGroupsBtn,
@@ -571,7 +585,7 @@ function refreshAuthState() {
 function signOut() {
   clearStoredToken();
   clearPkceState();
-  resetGroups();
+  resetPickers();
   refreshAuthState();
   logInfo('Signed out.');
 }
@@ -615,9 +629,9 @@ async function apiSend(method, path, body) {
     method,
     headers: {
       ...getAuthorizationHeaders(),
-      'Content-Type': 'application/json'
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
     },
-    body: JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body)
   });
 
   const raw = await response.text();
@@ -1253,125 +1267,218 @@ async function runDnisCheck(countryCode, rawNumber) {
 const GROUP_ADD_DELAY_MS = 500;
 const GROUP_MAX_RETRIES_429 = 3;
 
-const groupsState = {
-  items: [],
-  loaded: false,
-  loading: false
-};
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function setGroupsStatus(message, isError = false) {
-  elements.groupsStatus.textContent = message;
-  elements.groupsStatus.classList.toggle('is-error', Boolean(isError));
-}
+/**
+ * Dropdown filled from a paged Genesys Cloud list endpoint (groups, divisions, roles).
+ * Loads lazily (when its tab is opened), supports a text filter and a manual reload.
+ */
+function createListPicker({ select, filter, status, reloadBtn, path, query = {}, noun, nounPlural, toItem }) {
+  const state = { items: [], loaded: false, loading: false };
 
-function setGroupSelectPlaceholder(text) {
-  elements.groupSelect.innerHTML = '';
-  const option = document.createElement('option');
-  option.value = '';
-  option.textContent = text;
-  elements.groupSelect.appendChild(option);
-}
+  function setStatus(message, isError = false) {
+    status.textContent = message;
+    status.classList.toggle('is-error', Boolean(isError));
+  }
 
-function renderGroupOptions() {
-  const filter = asTrimmedString(elements.groupFilter.value).toLowerCase();
-  const previous = elements.groupSelect.value;
-  const matches = groupsState.items.filter((group) => !filter || group.name.toLowerCase().includes(filter));
-
-  setGroupSelectPlaceholder(matches.length ? 'Select a group' : 'No groups match the filter');
-
-  for (const group of matches) {
+  function setPlaceholder(text) {
+    select.innerHTML = '';
     const option = document.createElement('option');
-    option.value = group.id;
-    option.textContent = group.label;
-    elements.groupSelect.appendChild(option);
+    option.value = '';
+    option.textContent = text;
+    select.appendChild(option);
   }
 
-  if (previous && matches.some((group) => group.id === previous)) {
-    elements.groupSelect.value = previous;
-  }
+  function render() {
+    const needle = asTrimmedString(filter.value).toLowerCase();
+    const previous = select.value;
+    const matches = state.items.filter((item) => !needle || item.name.toLowerCase().includes(needle));
 
-  const total = groupsState.items.length;
-  setGroupsStatus(
-    filter
-      ? `${matches.length} of ${total} groups match.`
-      : `${total} group${total === 1 ? '' : 's'} loaded.`
-  );
-}
+    setPlaceholder(matches.length ? `Select a ${noun}` : `No ${nounPlural} match the filter`);
 
-function resetGroups() {
-  groupsState.items = [];
-  groupsState.loaded = false;
-  groupsState.loading = false;
-  if (!elements.groupSelect) return;
-  elements.groupFilter.value = '';
-  setGroupSelectPlaceholder('Sign in to load groups');
-  setGroupsStatus('');
-}
-
-async function loadGroups({ force = false } = {}) {
-  if (groupsState.loading) return;
-
-  if (!getStoredToken()) {
-    resetGroups();
-    setGroupsStatus('Sign in to load the group list.');
-    return;
-  }
-
-  if (groupsState.loaded && !force) return;
-
-  groupsState.loading = true;
-  setGroupSelectPlaceholder('Loading groups...');
-  setGroupsStatus('Loading groups...');
-
-  try {
-    const collected = [];
-    let pageNumber = 1;
-    let pageCount = 1;
-
-    while (pageNumber <= pageCount && pageNumber <= 100) {
-      const response = await apiGet('/api/v2/groups', { pageSize: 100, pageNumber });
-      if (!response.ok) {
-        throw new Error(`Group list request failed (${response.status}) - ${response.raw || response.statusText}`);
-      }
-
-      const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
-      collected.push(...entities);
-      pageCount = Number(response.data?.pageCount || 1);
-      pageNumber += 1;
+    for (const item of matches) {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.label;
+      select.appendChild(option);
     }
 
-    const names = collected.map((group) => asTrimmedString(group.name).toLowerCase());
-    groupsState.items = collected
-      .filter((group) => group?.id && asTrimmedString(group.name))
-      .map((group) => {
-        const name = asTrimmedString(group.name);
-        const duplicated = names.filter((candidate) => candidate === name.toLowerCase()).length > 1;
-        const members = Number.isFinite(Number(group.memberCount)) && group.memberCount !== undefined
-          ? ` (${group.memberCount} member${Number(group.memberCount) === 1 ? '' : 's'})`
-          : '';
-        return {
-          id: group.id,
-          name,
-          label: `${name}${members}${duplicated ? ` [${String(group.id).slice(0, 8)}]` : ''}`
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    if (previous && matches.some((item) => item.id === previous)) {
+      select.value = previous;
+    }
 
-    groupsState.loaded = true;
-    renderGroupOptions();
-  } catch (err) {
-    groupsState.items = [];
-    groupsState.loaded = false;
-    setGroupSelectPlaceholder('Could not load groups');
-    setGroupsStatus(err.message || String(err), true);
-    logError(err.message || String(err));
-  } finally {
-    groupsState.loading = false;
+    const total = state.items.length;
+    setStatus(
+      needle
+        ? `${matches.length} of ${total} ${nounPlural} match.`
+        : `${total} ${total === 1 ? noun : nounPlural} loaded.`
+    );
   }
+
+  function reset() {
+    state.items = [];
+    state.loaded = false;
+    state.loading = false;
+    filter.value = '';
+    setPlaceholder(`Sign in to load ${nounPlural}`);
+    setStatus('');
+  }
+
+  async function load({ force = false } = {}) {
+    if (state.loading) return;
+
+    if (!getStoredToken()) {
+      reset();
+      setStatus(`Sign in to load the ${noun} list.`);
+      return;
+    }
+
+    if (state.loaded && !force) return;
+
+    state.loading = true;
+    setPlaceholder(`Loading ${nounPlural}...`);
+    setStatus(`Loading ${nounPlural}...`);
+
+    try {
+      const collected = [];
+      let pageNumber = 1;
+      let pageCount = 1;
+
+      while (pageNumber <= pageCount && pageNumber <= 100) {
+        const response = await apiGet(path, { ...query, pageSize: 100, pageNumber });
+        if (!response.ok) {
+          throw new Error(`${noun[0].toUpperCase()}${noun.slice(1)} list request failed (${response.status}) - ${response.raw || response.statusText}`);
+        }
+
+        const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+        collected.push(...entities);
+
+        const total = Number(response.data?.total || 0);
+        pageCount = Number(response.data?.pageCount) || Math.ceil(total / 100) || 1;
+        if (!entities.length) break;
+        pageNumber += 1;
+      }
+
+      const nameCounts = new Map();
+      for (const entity of collected) {
+        const key = asTrimmedString(entity?.name).toLowerCase();
+        nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+      }
+
+      state.items = collected
+        .filter((entity) => entity?.id && asTrimmedString(entity.name))
+        .map((entity) => {
+          const name = asTrimmedString(entity.name);
+          const duplicated = nameCounts.get(name.toLowerCase()) > 1;
+          return { ...toItem(entity, duplicated), id: entity.id, name, raw: entity };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+      state.loaded = true;
+      render();
+    } catch (err) {
+      state.items = [];
+      state.loaded = false;
+      setPlaceholder(`Could not load ${nounPlural}`);
+      setStatus(err.message || String(err), true);
+      logError(err.message || String(err));
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  filter.addEventListener('input', () => {
+    if (state.loaded) render();
+  });
+
+  reloadBtn.addEventListener('click', () => {
+    load({ force: true });
+  });
+
+  return {
+    load,
+    reset,
+    find: (id) => state.items.find((item) => item.id === id),
+    invalidate: () => { state.loaded = false; }
+  };
+}
+
+function idSuffix(entity, duplicated) {
+  return duplicated ? ` [${String(entity.id).slice(0, 8)}]` : '';
+}
+
+const groupsPicker = createListPicker({
+  select: elements.groupSelect,
+  filter: elements.groupFilter,
+  status: elements.groupsStatus,
+  reloadBtn: elements.reloadGroupsBtn,
+  path: '/api/v2/groups',
+  noun: 'group',
+  nounPlural: 'groups',
+  toItem: (group, duplicated) => {
+    const count = group.memberCount;
+    const members = count !== undefined && Number.isFinite(Number(count))
+      ? ` (${count} member${Number(count) === 1 ? '' : 's'})`
+      : '';
+    return { label: `${asTrimmedString(group.name)}${members}${idSuffix(group, duplicated)}` };
+  }
+});
+
+const divisionsPicker = createListPicker({
+  select: elements.divisionSelect,
+  filter: elements.divisionFilter,
+  status: elements.divisionsStatus,
+  reloadBtn: elements.reloadDivisionsBtn,
+  path: '/api/v2/authorization/divisions',
+  noun: 'division',
+  nounPlural: 'divisions',
+  toItem: (division, duplicated) => ({
+    label: `${asTrimmedString(division.name)}${division.homeDivision ? ' (home)' : ''}${idSuffix(division, duplicated)}`
+  })
+});
+
+const rolesPicker = createListPicker({
+  select: elements.roleSelect,
+  filter: elements.roleFilter,
+  status: elements.rolesStatus,
+  reloadBtn: elements.reloadRolesBtn,
+  path: '/api/v2/authorization/roles',
+  noun: 'role',
+  nounPlural: 'roles',
+  toItem: (role, duplicated) => ({
+    label: `${asTrimmedString(role.name)}${idSuffix(role, duplicated)}`
+  })
+});
+
+function resetPickers() {
+  groupsPicker.reset();
+  divisionsPicker.reset();
+  rolesPicker.reset();
+}
+
+// Shared by the bulk tools that take a list of emails: drops invalid lines and duplicates.
+function prepareEmailList(rawEmails) {
+  const seen = new Set();
+  const emails = [];
+  let skipped = 0;
+
+  rawEmails.forEach((email, index) => {
+    const key = email.toLowerCase();
+    if (!/^\S+@\S+$/.test(email)) {
+      logWarning(`Line ${index + 1}: "${email}" is not a valid email. Skipped.`);
+      skipped += 1;
+    } else if (seen.has(key)) {
+      logWarning(`Line ${index + 1}: ${email} is duplicated. Skipped.`);
+      skipped += 1;
+    } else {
+      seen.add(key);
+      emails.push(email);
+    }
+  });
+
+  return { emails, skipped };
 }
 
 function parseEmailList(text) {
@@ -1431,23 +1538,7 @@ async function processGroupMembersFile(file, group) {
       return;
     }
 
-    // Remove invalid lines and duplicates up front so every email is processed once.
-    const seen = new Set();
-    const emails = [];
-    let skipped = 0;
-    rawEmails.forEach((email, index) => {
-      const key = email.toLowerCase();
-      if (!/^\S+@\S+$/.test(email)) {
-        logWarning(`Line ${index + 1}: "${email}" is not a valid email. Skipped.`);
-        skipped += 1;
-      } else if (seen.has(key)) {
-        logWarning(`Line ${index + 1}: ${email} is duplicated. Skipped.`);
-        skipped += 1;
-      } else {
-        seen.add(key);
-        emails.push(email);
-      }
-    });
+    const { emails, skipped } = prepareEmailList(rawEmails);
 
     logInfo(`File loaded: ${file.name}`);
     logInfo(`Target group: ${group.name} (${group.id})`);
@@ -1493,7 +1584,7 @@ async function processGroupMembersFile(file, group) {
     updateSummary(`Group update finished: ${added} added, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
 
     // Member counts changed, so refresh the list the next time it is needed.
-    groupsState.loaded = false;
+    groupsPicker.invalidate();
   } catch (err) {
     logError(err.message || String(err));
     updateSummary(`Group update stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
@@ -1501,6 +1592,80 @@ async function processGroupMembersFile(file, group) {
     refreshAuthState();
     setBusy(false);
     if (elements.groupMembersFile) elements.groupMembersFile.value = '';
+  }
+}
+
+async function processRoleAssignFile(file, division, role) {
+  clearOutput();
+  updateSummary('Assigning role...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rawEmails = parseEmailList(text);
+
+    if (!rawEmails.length) {
+      logError('The file is empty. Provide one email per line.');
+      updateSummary('Stopped: no emails found.');
+      return;
+    }
+
+    const { emails, skipped } = prepareEmailList(rawEmails);
+
+    logInfo(`File loaded: ${file.name}`);
+    logInfo(`Division: ${division.name} (${division.id})`);
+    logInfo(`Role: ${role.name} (${role.id})`);
+    logInfo(`Emails to process: ${emails.length}`);
+
+    let assigned = 0;
+    let notFound = 0;
+    let failed = 0;
+
+    for (let index = 0; index < emails.length; index += 1) {
+      const email = emails[index];
+
+      try {
+        const lookup = await findAgentEmail(email);
+        if (!lookup.ok) {
+          if (/not found/i.test(lookup.message)) {
+            logError(`NOT FOUND: ${email}`);
+            notFound += 1;
+          } else {
+            logError(`${email}: ${lookup.message}`);
+            failed += 1;
+          }
+        } else {
+          const response = await postWithRateLimitRetry(
+            `/api/v2/authorization/subjects/${encodeURIComponent(lookup.AgentId)}/divisions/${encodeURIComponent(division.id)}/roles/${encodeURIComponent(role.id)}`
+          );
+
+          if (response.ok) {
+            logSuccess(`Role assigned to ${email} (${lookup.AgentId})`);
+            assigned += 1;
+          } else {
+            const detail = response.data?.message || response.raw || response.statusText;
+            logError(`HTTP ERROR: ${email} -> ${response.status} -> ${detail}`);
+            failed += 1;
+          }
+        }
+      } catch (err) {
+        logError(`GENERAL ERROR: ${email} -> ${err.message || err}`);
+        failed += 1;
+      }
+
+      if (index < emails.length - 1) await sleep(GROUP_ADD_DELAY_MS);
+    }
+
+    logInfo('Role assignment completed.');
+    updateSummary(`Role update finished: ${assigned} assigned, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Role update stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.rolesEmailsFile) elements.rolesEmailsFile.value = '';
   }
 }
 
@@ -2091,60 +2256,6 @@ const requestBody =  {
   return { created: 1, skipped: 0, failed: 0 };
 }
 
-async function processRolesCsvRow(row, rowNumber) {
-  const divisionName = getRowValueByHeader(row, ['Division']);
-  const email = getRowValueByHeader(row, ['email']);
-  const roleId = getRowValueByHeader(row, ['RoleId']);
-
-  if (!divisionName) {
-    logWarning(`Row ${rowNumber}: Division empty. Skipped.`);
-    return { created: 0, skipped: 1, failed: 0 };
-  }
-
-  if (!email) {
-    logWarning(`Row ${rowNumber}: email empty. Skipped.`);
-    return { created: 0, skipped: 1, failed: 0 };
-  }
-
-  if (!roleId) {
-    logWarning(`Row ${rowNumber}: RoleId empty. Skipped.`);
-    return { created: 0, skipped: 1, failed: 0 };
-  }
-
-  logInfo(`Row ${rowNumber}: processing role for agent "${email}"`);
-
-  const divisionLookup = await findDivisionByName(divisionName);
-  if (!divisionLookup.ok) {
-    logError(`Row ${rowNumber}: ${divisionLookup.message}`);
-    return { created: 0, skipped: 0, failed: 1 };
-  }
-
-  const emailLookup = await findAgentEmail(email);
-  if (!emailLookup.ok) {
-    logError(`Row ${rowNumber}: ${emailLookup.message}`);
-    return { created: 0, skipped: 0, failed: 1 };
-  }
-
-  const divisionId = divisionLookup.division.id || divisionLookup.division;
-  const agentId = emailLookup.AgentId;
-
-  logInfo(`Row ${rowNumber}: Adding role "${roleId}" to agent "${email}"`);
-
-  const createResponse = await apiPost(
-    `/api/v2/authorization/subjects/${agentId}/divisions/${divisionId}/roles/${roleId}`
-  );
-
-  if (!createResponse.ok) {
-    logError(
-      `Row ${rowNumber}: Failure ${createResponse.status} - ${createResponse.statusText} - ${createResponse.raw || ''}`
-    );
-    return { created: 0, skipped: 0, failed: 1 };
-  }
-
-  logSuccess(`Row ${rowNumber}: Role assigned to "${email}"`);
-  return { created: 1, skipped: 0, failed: 0 };
-}
-
 async function processExternalContactCsvFile(file) {
   clearOutput();
   updateSummary('Processing External Contacts CSV...');
@@ -2196,58 +2307,6 @@ async function processExternalContactCsvFile(file) {
     refreshAuthState();
     setBusy(false);
     if (elements.ExternalContactCsvForm) elements.scheduleCsvForm.reset();
-  }
-}
-
-async function processRolesCsvFile(file) {
-  clearOutput();
-  updateSummary('Processing Roles CSV...');
-  setBusy(true);
-  refreshAuthState();
-
-  try {
-    const text = await file.text();
-    const rows = parseCsvText(text);
-
-    if (!rows.length) {
-      logError('The Roles CSV file is empty or could not be parsed.');
-      updateSummary('Stopped: no rows found.');
-      return;
-    }
-
-    if (
-      !hasCsvHeader(rows, ['email']) ||
-      !hasCsvHeader(rows, ['Division']) ||
-      !hasCsvHeader(rows, ['roleId']) 
-    ) {
-      logError('CSV must contain the headers Division, email and RoleId.');
-      updateSummary('Stopped: invalid CSV headers.');
-      return;
-    }
-
-    logInfo(`CSV loaded: ${file.name}`);
-    logInfo(`Rows to process: ${rows.length}`);
-
-    let created = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (let index = 0; index < rows.length; index += 1) {
-      const result = await processRolesCsvRow(rows[index], index + 2);
-      created += result.created;
-      skipped += result.skipped;
-      failed += result.failed;
-    }
-
-    logInfo('Roles CSV processing completed.');
-    updateSummary(`Roles CSV finished: ${created} created, ${skipped} skipped, ${failed} failed.`);
-  } catch (err) {
-    logError(err.message || String(err));
-    updateSummary(`Roles CSV stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
-  } finally {
-    refreshAuthState();
-    setBusy(false);
-    if (elements.RolesCsvForm) elements.RolesCsvForm.reset();
   }
 }
 
@@ -2330,24 +2389,6 @@ function bindEvents() {
     elements.output.classList.toggle('only-issues', elements.issuesOnly.checked);
   });
 
-  if (elements.RolesCsvForm) {
-    elements.RolesCsvForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-
-      const file = elements.RolesCsvFile?.files?.[0];
-
-      if (!file) {
-        clearOutput();
-        logError('Select a Roles CSV file first.');
-        return;
-      }
-
-      const isAuthenticated = await ensureAuthenticated();
-      if (!isAuthenticated) return;
-
-      await processRolesCsvFile(file);
-    });
-  }
   
   if (elements.scheduleCsvForm) {
     elements.scheduleCsvForm.addEventListener('submit', async (event) => {
@@ -2433,20 +2474,49 @@ if (elements.ExternalContactCsvForm) {
     const isAuthenticated = await ensureAuthenticated();
     if (!isAuthenticated) return;
 
-    const group = groupsState.items.find((candidate) => candidate.id === groupId);
+    const group = groupsPicker.find(groupId);
     await processGroupMembersFile(file, group || { id: groupId, name: groupId });
   });
 
-  elements.groupFilter.addEventListener('input', () => {
-    if (groupsState.loaded) renderGroupOptions();
-  });
+  elements.roleAssignForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
 
-  elements.reloadGroupsBtn.addEventListener('click', () => {
-    loadGroups({ force: true });
+    const divisionId = asTrimmedString(elements.divisionSelect.value);
+    const roleId = asTrimmedString(elements.roleSelect.value);
+    const file = elements.rolesEmailsFile?.files?.[0];
+
+    if (!divisionId) {
+      clearOutput();
+      logError('Select a division first.');
+      return;
+    }
+
+    if (!roleId) {
+      clearOutput();
+      logError('Select a role first.');
+      return;
+    }
+
+    if (!file) {
+      clearOutput();
+      logError('Select a file with the emails first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    const division = divisionsPicker.find(divisionId) || { id: divisionId, name: divisionId };
+    const role = rolesPicker.find(roleId) || { id: roleId, name: roleId };
+    await processRoleAssignFile(file, division, role);
   });
 
   document.querySelector('[data-tabs]').addEventListener('tabchange', (event) => {
-    if (event.detail.id === 'tab-groups') loadGroups();
+    if (event.detail.id === 'tab-groups') groupsPicker.load();
+    if (event.detail.id === 'tab-roles') {
+      divisionsPicker.load();
+      rolesPicker.load();
+    }
   });
 
   elements.dnisForm.addEventListener('submit', async (event) => {

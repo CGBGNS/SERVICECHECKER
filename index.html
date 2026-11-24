@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <header class="topbar">
@@ -211,18 +211,43 @@
 
         <!-- ROLES -->
         <div id="tab-roles" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-roles" hidden>
-          <form id="RolesCsvForm" class="stack">
+          <form id="roleAssignForm" class="stack">
+            <div class="field">
+              <label for="divisionSelect"><span>Division</span></label>
+              <input id="divisionFilter" type="text" placeholder="Type to filter divisions by name" autocomplete="off" spellcheck="false" aria-label="Filter divisions by name">
+              <div class="field-row">
+                <select id="divisionSelect" required>
+                  <option value="">Sign in to load divisions</option>
+                </select>
+                <button id="reloadDivisionsBtn" type="button" class="secondary small">Reload</button>
+              </div>
+              <p id="divisionsStatus" class="section-note" role="status"></p>
+            </div>
+
+            <div class="field">
+              <label for="roleSelect"><span>Role</span></label>
+              <input id="roleFilter" type="text" placeholder="Type to filter roles by name" autocomplete="off" spellcheck="false" aria-label="Filter roles by name">
+              <div class="field-row">
+                <select id="roleSelect" required>
+                  <option value="">Sign in to load roles</option>
+                </select>
+                <button id="reloadRolesBtn" type="button" class="secondary small">Reload</button>
+              </div>
+              <p id="rolesStatus" class="section-note" role="status"></p>
+            </div>
+
             <label>
-              <span>CSV file</span>
-              <input id="RolesCsvFile" name="RolesCsvFile" type="file" accept=".csv,text/csv" required>
+              <span>Emails file</span>
+              <input id="rolesEmailsFile" name="rolesEmailsFile" type="file" accept=".txt,.csv,text/plain,text/csv" required>
             </label>
 
             <p class="section-note">
-              Expected headers: <code>Division</code>, <code>email</code>, <code>RoleId</code>.
+              One email per line. A CSV with an <code>Email</code> header also works.
+              The selected role is granted to every user in the selected division.
             </p>
 
             <div class="actions">
-              <button id="runRolesCsvBtn" type="submit">Process Roles CSV</button>
+              <button id="runRoleAssignBtn" type="submit">Assign role to users</button>
             </div>
           </form>
         </div>
@@ -299,7 +324,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=10"></script>
-  <script src="app.js?v=10"></script>
+  <script src="config.js?v=11"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

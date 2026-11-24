@@ -62,6 +62,16 @@ Bulk tools -> **Add to group**.
 
 Blank lines, invalid emails and duplicates are skipped with a warning. Users that are not found and HTTP errors are reported per email. A 429 response is retried automatically. If the API asks for the group `version`, the request is retried once with it.
 
+## Assign a role to users (bulk)
+
+Bulk tools -> **Role update**.
+
+1. Choose the **division** (from `GET /api/v2/authorization/divisions`) and the **role** (from `GET /api/v2/authorization/roles`) in the dropdowns. Both lists are loaded the first time you open the tab after signing in, and each has a filter box and a **Reload** button.
+2. Upload a `.txt` file with one email per line (a CSV with an `Email` header also works).
+3. Press **Assign role to users**. For each email the app finds the user (`POST /api/v2/users/search`, exact email) and grants the role with `POST /api/v2/authorization/subjects/{userId}/divisions/{divisionId}/roles/{roleId}`, pausing 0.5 s between users.
+
+The ids come from the dropdowns, so a role or division name can never end up in the URL. Invalid emails and duplicates are skipped with a warning, and a 429 response is retried automatically.
+
 ## Country mapping
 
 The original Python script only included datatable IDs for:
@@ -84,6 +94,7 @@ The dropdown includes the other original country codes, but they are marked as n
 - Moved the OAuth Client ID out of `config.js`: it is now entered manually in a sign-in dialog
 - Redesigned the interface (two-column layout, severity-coded report, light/dark theme) without removing any feature
 - Fixed the **Bulk Role Update** form: its submit handler was never attached, so the button did nothing
+- Reworked **Role update**: division and role are chosen from dropdowns (ids come from the API) and the file only needs emails. This replaces the old `Division,email,RoleId` CSV, which failed with a 400 when `RoleId` contained a role name instead of an id
 - Added keyboard navigation (arrow keys, Home, End) to the bulk tool tabs
 
 ## Interface notes
