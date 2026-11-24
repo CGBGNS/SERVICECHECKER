@@ -11,27 +11,56 @@ A GitHub Pages site is a static frontend, so it must not store a client secret. 
 - `index.html` - page structure
 - `styles.css` - page styling
 - `app.js` - authentication, API calls, validation logic, and on-screen logging
-- `config.js` - your editable runtime settings
+- `config.js` - your editable runtime settings (environment, redirect URI, scopes)
 - `config.js.example` - template copy of the config
 
 ## Genesys Cloud setup
 
-1. Create or update an OAuth client for this app.
+1. Create or update an OAuth client for this app (grant type: **Code Authorization** with PKCE, no client secret).
 2. Configure the redirect URI to match your GitHub Pages URL exactly, for example:
    - `https://your-user.github.io/your-repo/`
-3. Use a browser-safe OAuth flow for the app.
-4. Ensure the signed-in user and OAuth client have the permissions/scopes required by the APIs the checker calls.
+3. Ensure the signed-in user and OAuth client have the permissions/scopes required by the APIs the checker calls.
 
 ## App setup
 
 1. Edit `config.js`
 2. Set:
-   - `clientId`
    - `environment` (example: `mypurecloud.de`)
    - `redirectUri`
    - `scopes` if you want to request them explicitly
 3. Push the files to a GitHub repository.
 4. Enable GitHub Pages for the repository.
+
+## Signing in (Client ID is not stored in the code)
+
+The OAuth **Client ID is never hardcoded or committed**. When you press **Sign in** (or run any action without an active session), a dialog asks you to type the Client ID of your OAuth client.
+
+- The value is validated (it must be a UUID) before redirecting to Genesys Cloud.
+- It is kept in `sessionStorage` only for the duration of the redirect, because the page reloads and the token exchange needs it. It is deleted as soon as the sign-in completes, fails, or you sign out.
+- The next sign-in asks for it again.
+
+## DNIS checker
+
+Pick a country (three-letter code) and type a phone number. The app:
+
+1. Finds the datatable named `{COUNTRY}_V_DNIS` (for example `ESP_V_DNIS`, exact name match) and gets its id.
+2. Looks up the number as the row key and reads the `action` and `destination` columns.
+3. Acts on `action`:
+   - `Transfer_service`: runs the existing service check using `destination` as the service (the DNIS log is kept above the service check).
+   - `Transfer_flow`: checks that a flow named `destination` exists in Architect.
+   - `Transfer_number`, `BPO`, `Callback`, `Disconnect`: shows the destination for information only.
+
+Any other `action` value is reported as an error. The number must match the datatable key exactly (spaces are removed; a leading `+` is not added or removed).
+
+## Add users to a group (bulk)
+
+Bulk tools -> **Add to group**.
+
+1. Choose the group from the dropdown. The list is loaded from `GET /api/v2/groups` (all pages) the first time you open the tab after signing in. Use the filter box to narrow it and **Reload** to refresh it.
+2. Upload a `.txt` file with one email per line (a CSV with an `Email` header also works).
+3. Press **Add users to group**. For each email the app finds the user (`POST /api/v2/users/search`, exact email) and adds them with `POST /api/v2/groups/{id}/members`, pausing 0.5 s between users.
+
+Blank lines, invalid emails and duplicates are skipped with a warning. Users that are not found and HTTP errors are reported per email. A 429 response is retried automatically. If the API asks for the group `version`, the request is retried once with it.
 
 ## Country mapping
 
@@ -52,3 +81,14 @@ The dropdown includes the other original country codes, but they are marked as n
 - Removed the client secret from the frontend
 - Fixed several duplicate-name checks so they compare against the correct item name instead of always comparing against the queue name
 - Fixed overflow destination checks so each overflow branch validates its own action instead of accidentally reusing the emergency action variable
+- Moved the OAuth Client ID out of `config.js`: it is now entered manually in a sign-in dialog
+- Redesigned the interface (two-column layout, severity-coded report, light/dark theme) without removing any feature
+- Fixed the **Bulk Role Update** form: its submit handler was never attached, so the button did nothing
+- Added keyboard navigation (arrow keys, Home, End) to the bulk tool tabs
+
+## Interface notes
+
+- The **Output** report stays visible next to the controls and counts OK, warning and error lines.
+- **Only warnings and errors** hides informational and success lines; **Copy** puts the whole report on the clipboard (with timestamps and severity) for pasting into a ticket.
+- Added the **DNIS checker** (see above)
+- Added bulk **Add to group** with a group dropdown loaded from `/api/v2/groups` (see above)

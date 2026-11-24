@@ -59,14 +59,8 @@ const COUNTRY_CONFIG = {
     datatableIdRouting: '131a869e-b378-4677-a083-8681c212e163',
     langAudio: 'it-it'
        },
-  GBR: { label: 'United Kingdom', configured: true,
-       datatableIdConfig: '9a86c190-a2b2-4c08-8459-fd82fa7a978a',
-    datatableIdRouting: '70de498f-1886-47c1-a689-090351ecfb08',
-    langAudio: 'en-gb'},
-  IRL: { label: 'Ireland', configured: true,
-       datatableIdConfig: '12a2f4e3-9b06-4db7-866c-608a47e521f6',
-    datatableIdRouting: '690943d1-15d2-4903-b865-166cb5ad4cac',
-    langAudio: 'en-ie'},
+  GBR: { label: 'United Kingdom', configured: false },
+  IRL: { label: 'Ireland', configured: false },
   BRA: {
     label: 'Brazil',
     configured: true,
@@ -74,20 +68,9 @@ const COUNTRY_CONFIG = {
     datatableIdRouting: 'fa028c5a-13b8-4041-a3cc-426dc876af8b',
     langAudio: 'pt-br'
   },
-  ARG: { label: 'Argentina', 
-        configured: true,
-        datatableIdRouting: '47901427-791f-43b0-82cd-128fe855fbb5',
-    datatableIdConfig: '494ac6ac-173d-4392-b3ed-2c16d2aa9b56',
-    langAudio: 'es-ar'
-       },
-  PER: { label: 'Peru', configured: true,
-       datatableIdConfig: '640f73ab-b709-4a87-870f-1779516d4385',
-    datatableIdRouting: '2f7474c2-08fe-43e5-9c92-8094ea068342',
-    langAudio: 'es-pe'},
-  CHL: { label: 'Chile', configured: true,
-       datatableIdConfig: '80a8fbe7-2ac5-44a8-b6e6-053eeabbac0f',
-    datatableIdRouting: '78c32df9-be56-4316-b3a6-36ac2568caa9',
-    langAudio: 'es-cl'},
+  ARG: { label: 'Argentina', configured: false },
+  PER: { label: 'Peru', configured: false },
+  CHL: { label: 'Chile', configured: false },
   MEX: { 
     label: 'Mexico',
     configured: true,
@@ -117,6 +100,13 @@ const elements = {
   loginBtn: document.getElementById('loginBtn'),
   logoutBtn: document.getElementById('logoutBtn'),
   clearBtn: document.getElementById('clearBtn'),
+  groupMembersForm: document.getElementById('groupMembersForm'),
+  groupSelect: document.getElementById('groupSelect'),
+  groupFilter: document.getElementById('groupFilter'),
+  groupsStatus: document.getElementById('groupsStatus'),
+  reloadGroupsBtn: document.getElementById('reloadGroupsBtn'),
+  groupMembersFile: document.getElementById('groupMembersFile'),
+  runGroupMembersBtn: document.getElementById('runGroupMembersBtn'),
   dnisForm: document.getElementById('dnisForm'),
   dnisCountry: document.getElementById('dnisCountry'),
   dnisNumber: document.getElementById('dnisNumber'),
@@ -275,7 +265,12 @@ function setBusy(isBusy) {
     elements.runScheduleCsvBtn,
     elements.runExternalContactCsvBtn,
     elements.RolesCsvFile,
-    elements.runRolesCsvBtn
+    elements.runRolesCsvBtn,
+    elements.groupSelect,
+    elements.groupFilter,
+    elements.reloadGroupsBtn,
+    elements.groupMembersFile,
+    elements.runGroupMembersBtn
   ]
     .filter(Boolean)
     .forEach((element) => {
@@ -576,6 +571,7 @@ function refreshAuthState() {
 function signOut() {
   clearStoredToken();
   clearPkceState();
+  resetGroups();
   refreshAuthState();
   logInfo('Signed out.');
 }
@@ -1247,6 +1243,264 @@ async function runDnisCheck(countryCode, rawNumber) {
   } finally {
     refreshAuthState();
     setBusy(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk: add users to a group
+// ---------------------------------------------------------------------------
+
+const GROUP_ADD_DELAY_MS = 500;
+const GROUP_MAX_RETRIES_429 = 3;
+
+const groupsState = {
+  items: [],
+  loaded: false,
+  loading: false
+};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setGroupsStatus(message, isError = false) {
+  elements.groupsStatus.textContent = message;
+  elements.groupsStatus.classList.toggle('is-error', Boolean(isError));
+}
+
+function setGroupSelectPlaceholder(text) {
+  elements.groupSelect.innerHTML = '';
+  const option = document.createElement('option');
+  option.value = '';
+  option.textContent = text;
+  elements.groupSelect.appendChild(option);
+}
+
+function renderGroupOptions() {
+  const filter = asTrimmedString(elements.groupFilter.value).toLowerCase();
+  const previous = elements.groupSelect.value;
+  const matches = groupsState.items.filter((group) => !filter || group.name.toLowerCase().includes(filter));
+
+  setGroupSelectPlaceholder(matches.length ? 'Select a group' : 'No groups match the filter');
+
+  for (const group of matches) {
+    const option = document.createElement('option');
+    option.value = group.id;
+    option.textContent = group.label;
+    elements.groupSelect.appendChild(option);
+  }
+
+  if (previous && matches.some((group) => group.id === previous)) {
+    elements.groupSelect.value = previous;
+  }
+
+  const total = groupsState.items.length;
+  setGroupsStatus(
+    filter
+      ? `${matches.length} of ${total} groups match.`
+      : `${total} group${total === 1 ? '' : 's'} loaded.`
+  );
+}
+
+function resetGroups() {
+  groupsState.items = [];
+  groupsState.loaded = false;
+  groupsState.loading = false;
+  if (!elements.groupSelect) return;
+  elements.groupFilter.value = '';
+  setGroupSelectPlaceholder('Sign in to load groups');
+  setGroupsStatus('');
+}
+
+async function loadGroups({ force = false } = {}) {
+  if (groupsState.loading) return;
+
+  if (!getStoredToken()) {
+    resetGroups();
+    setGroupsStatus('Sign in to load the group list.');
+    return;
+  }
+
+  if (groupsState.loaded && !force) return;
+
+  groupsState.loading = true;
+  setGroupSelectPlaceholder('Loading groups...');
+  setGroupsStatus('Loading groups...');
+
+  try {
+    const collected = [];
+    let pageNumber = 1;
+    let pageCount = 1;
+
+    while (pageNumber <= pageCount && pageNumber <= 100) {
+      const response = await apiGet('/api/v2/groups', { pageSize: 100, pageNumber });
+      if (!response.ok) {
+        throw new Error(`Group list request failed (${response.status}) - ${response.raw || response.statusText}`);
+      }
+
+      const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+      collected.push(...entities);
+      pageCount = Number(response.data?.pageCount || 1);
+      pageNumber += 1;
+    }
+
+    const names = collected.map((group) => asTrimmedString(group.name).toLowerCase());
+    groupsState.items = collected
+      .filter((group) => group?.id && asTrimmedString(group.name))
+      .map((group) => {
+        const name = asTrimmedString(group.name);
+        const duplicated = names.filter((candidate) => candidate === name.toLowerCase()).length > 1;
+        const members = Number.isFinite(Number(group.memberCount)) && group.memberCount !== undefined
+          ? ` (${group.memberCount} member${Number(group.memberCount) === 1 ? '' : 's'})`
+          : '';
+        return {
+          id: group.id,
+          name,
+          label: `${name}${members}${duplicated ? ` [${String(group.id).slice(0, 8)}]` : ''}`
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+    groupsState.loaded = true;
+    renderGroupOptions();
+  } catch (err) {
+    groupsState.items = [];
+    groupsState.loaded = false;
+    setGroupSelectPlaceholder('Could not load groups');
+    setGroupsStatus(err.message || String(err), true);
+    logError(err.message || String(err));
+  } finally {
+    groupsState.loading = false;
+  }
+}
+
+function parseEmailList(text) {
+  const clean = text.replace(/^\uFEFF/, '');
+  const lines = clean.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  // A CSV with an Email header is accepted too; a plain list has one email per line.
+  const hasEmailHeader = /(^|[,;])\s*"?e-?mail"?\s*([,;]|$)/i.test(lines[0]);
+  if (hasEmailHeader) {
+    const rows = parseCsvText(clean);
+    return rows.map((row) => getRowValueByHeader(row, ['Email', 'E-mail'])).filter(Boolean);
+  }
+
+  return lines;
+}
+
+async function postWithRateLimitRetry(path, body) {
+  let response = await apiPost(path, body);
+  for (let attempt = 1; response.status === 429 && attempt <= GROUP_MAX_RETRIES_429; attempt += 1) {
+    logWarning(`Rate limited by Genesys Cloud. Waiting ${attempt * 3}s before retrying...`);
+    await sleep(attempt * 3000);
+    response = await apiPost(path, body);
+  }
+  return response;
+}
+
+async function addUserToGroup(groupId, userId) {
+  const path = `/api/v2/groups/${encodeURIComponent(groupId)}/members`;
+  let response = await postWithRateLimitRetry(path, { memberIds: [userId] });
+
+  // Some orgs require the current group version in the body. Retry once with it if the API asks for it.
+  const mentionsVersion = /version/i.test(String(response.raw || ''));
+  if (!response.ok && (response.status === 400 || response.status === 409) && mentionsVersion) {
+    const group = await apiGet(`/api/v2/groups/${encodeURIComponent(groupId)}`);
+    if (group.ok && group.data?.version !== undefined) {
+      response = await postWithRateLimitRetry(path, { memberIds: [userId], version: group.data.version });
+    }
+  }
+
+  return response;
+}
+
+async function processGroupMembersFile(file, group) {
+  clearOutput();
+  updateSummary('Adding users to group...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const text = await file.text();
+    const rawEmails = parseEmailList(text);
+
+    if (!rawEmails.length) {
+      logError('The file is empty. Provide one email per line.');
+      updateSummary('Stopped: no emails found.');
+      return;
+    }
+
+    // Remove invalid lines and duplicates up front so every email is processed once.
+    const seen = new Set();
+    const emails = [];
+    let skipped = 0;
+    rawEmails.forEach((email, index) => {
+      const key = email.toLowerCase();
+      if (!/^\S+@\S+$/.test(email)) {
+        logWarning(`Line ${index + 1}: "${email}" is not a valid email. Skipped.`);
+        skipped += 1;
+      } else if (seen.has(key)) {
+        logWarning(`Line ${index + 1}: ${email} is duplicated. Skipped.`);
+        skipped += 1;
+      } else {
+        seen.add(key);
+        emails.push(email);
+      }
+    });
+
+    logInfo(`File loaded: ${file.name}`);
+    logInfo(`Target group: ${group.name} (${group.id})`);
+    logInfo(`Emails to process: ${emails.length}`);
+
+    let added = 0;
+    let notFound = 0;
+    let failed = 0;
+
+    for (let index = 0; index < emails.length; index += 1) {
+      const email = emails[index];
+
+      try {
+        const lookup = await findAgentEmail(email);
+        if (!lookup.ok) {
+          if (/not found/i.test(lookup.message)) {
+            logError(`NOT FOUND: ${email}`);
+            notFound += 1;
+          } else {
+            logError(`${email}: ${lookup.message}`);
+            failed += 1;
+          }
+        } else {
+          const response = await addUserToGroup(group.id, lookup.AgentId);
+          if (response.ok) {
+            logSuccess(`User added to group: ${email} (${lookup.AgentId})`);
+            added += 1;
+          } else {
+            const detail = response.data?.message || response.raw || response.statusText;
+            logError(`HTTP ERROR: ${email} -> ${response.status} -> ${detail}`);
+            failed += 1;
+          }
+        }
+      } catch (err) {
+        logError(`GENERAL ERROR: ${email} -> ${err.message || err}`);
+        failed += 1;
+      }
+
+      if (index < emails.length - 1) await sleep(GROUP_ADD_DELAY_MS);
+    }
+
+    logInfo('Group members processing completed.');
+    updateSummary(`Group update finished: ${added} added, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
+
+    // Member counts changed, so refresh the list the next time it is needed.
+    groupsState.loaded = false;
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Group update stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.groupMembersFile) elements.groupMembersFile.value = '';
   }
 }
 
@@ -2017,6 +2271,8 @@ function initTabs() {
         panel.classList.toggle('active', isActive);
         panel.hidden = !isActive;
       });
+
+      wrapper.dispatchEvent(new CustomEvent('tabchange', { detail: { id: targetId } }));
     }
 
     buttons.forEach((button, index) => {
@@ -2156,6 +2412,43 @@ if (elements.ExternalContactCsvForm) {
     await processCsvFile(file);
   });
   
+  elements.groupMembersForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const groupId = asTrimmedString(elements.groupSelect.value);
+    const file = elements.groupMembersFile?.files?.[0];
+
+    if (!groupId) {
+      clearOutput();
+      logError('Select a group first.');
+      return;
+    }
+
+    if (!file) {
+      clearOutput();
+      logError('Select a file with the emails first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    const group = groupsState.items.find((candidate) => candidate.id === groupId);
+    await processGroupMembersFile(file, group || { id: groupId, name: groupId });
+  });
+
+  elements.groupFilter.addEventListener('input', () => {
+    if (groupsState.loaded) renderGroupOptions();
+  });
+
+  elements.reloadGroupsBtn.addEventListener('click', () => {
+    loadGroups({ force: true });
+  });
+
+  document.querySelector('[data-tabs]').addEventListener('tabchange', (event) => {
+    if (event.detail.id === 'tab-groups') loadGroups();
+  });
+
   elements.dnisForm.addEventListener('submit', async (event) => {
     event.preventDefault();
 

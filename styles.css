@@ -225,15 +225,17 @@ h2 {
   padding: 20px 24px 40px;
   display: grid;
   grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   grid-template-areas:
     "check output"
+    "dnis  output"
     "bulk  output";
   gap: 16px;
   align-items: start;
 }
 
 .area-check { grid-area: check; }
+.area-dnis { grid-area: dnis; }
 .area-bulk { grid-area: bulk; }
 .area-output { grid-area: output; }
 
@@ -445,6 +447,41 @@ code {
   background: var(--panel);
   color: var(--ink);
   border-color: var(--line);
+}
+
+.tabs-nav .tab-btn:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field > label {
+  gap: 0;
+}
+
+.field-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.field-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.field-row button {
+  flex: none;
+  min-height: 42px;
+}
+
+.section-note.is-error {
+  color: var(--err);
+  font-weight: 600;
 }
 
 .tab-panel[hidden] {
@@ -711,6 +748,7 @@ dialog::backdrop {
     grid-template-rows: none;
     grid-template-areas:
       "check"
+      "dnis"
       "output"
       "bulk";
     padding: 16px;
@@ -729,7 +767,11 @@ dialog::backdrop {
   }
 
   .tabs-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .tabs-nav .tab-btn:last-child:nth-child(odd) {
+    grid-column: auto;
   }
 }
 
@@ -762,6 +804,10 @@ dialog::backdrop {
 
   .tabs-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tabs-nav .tab-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 
   .output-tools {
