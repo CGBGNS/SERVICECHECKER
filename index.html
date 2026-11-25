@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
   <header class="topbar">
@@ -152,6 +152,24 @@
             Add to group
           </button>
 
+          <button type="button" class="tab-btn"
+            role="tab"
+            id="tab-btn-canned"
+            aria-selected="false"
+            aria-controls="tab-canned"
+            data-tab-target="tab-canned">
+            Canned responses
+          </button>
+
+          <button type="button" class="tab-btn"
+            role="tab"
+            id="tab-btn-utilization"
+            aria-selected="false"
+            aria-controls="tab-utilization"
+            data-tab-target="tab-utilization">
+            Utilization
+          </button>
+
         </div>
 
         <!-- USERS -->
@@ -282,6 +300,70 @@
           </form>
         </div>
 
+
+        <!-- CANNED RESPONSES -->
+        <div id="tab-canned" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-canned" hidden>
+          <form id="cannedForm" class="stack">
+            <label>
+              <span>Excel or CSV file</span>
+              <input id="cannedFile" name="cannedFile" type="file" accept=".xlsx,.xls,.csv,text/csv" required>
+            </label>
+
+            <p class="section-note">
+              Columns: <code>TEMPLATENAMEFIN</code> (response name), <code>libraryPrefix</code> (finds the library) and <code>BODY</code> (HTML).
+              The first sheet is used.
+            </p>
+
+            <label class="check">
+              <input id="cannedReplaceQuestion" type="checkbox" checked>
+              <span>Replace “?” with a space (as in the original script)</span>
+            </label>
+
+            <p class="section-note">
+              The tag <code>&lt;$Agent.FirstName$&gt;</code> in the body is always converted to the <code>{{AGENT_ALIAS}}</code> substitution.
+            </p>
+
+            <div class="actions">
+              <button id="runCannedBtn" type="submit">Upload canned responses</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- UTILIZATION -->
+        <div id="tab-utilization" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-utilization" hidden>
+          <form id="utilizationForm" class="stack">
+            <p class="section-note">
+              Tick the channels to configure and set their maximum capacity. “Can be interrupted by” lists the other channels
+              that may interrupt that channel. Channels left unticked are not sent.
+            </p>
+
+            <fieldset id="utilChannels" class="util-channels" aria-label="Channels"></fieldset>
+
+            <p id="utilError" class="field-error" role="alert" hidden></p>
+
+            <details class="util-json">
+              <summary>Edit the request body as JSON</summary>
+              <textarea id="utilJson" spellcheck="false" rows="14" aria-label="Utilization request body (JSON)"></textarea>
+              <p class="section-note">Changes here update the form above, and the other way round.</p>
+            </details>
+
+            <div class="actions">
+              <button id="resetUtilBtn" type="button" class="secondary small">Reset to defaults</button>
+            </div>
+
+            <label>
+              <span>Emails file</span>
+              <input id="utilizationFile" name="utilizationFile" type="file" accept=".txt,.csv,text/plain,text/csv" required>
+            </label>
+
+            <p class="section-note">One email per line. The body above replaces the utilization of every user in the file.</p>
+
+            <div class="actions">
+              <button id="runUtilizationBtn" type="submit">Apply utilization to users</button>
+            </div>
+          </form>
+        </div>
+
       </div>
     </section>
 
@@ -324,7 +406,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=11"></script>
-  <script src="app.js?v=11"></script>
+  <script src="config.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

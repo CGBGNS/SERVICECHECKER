@@ -126,6 +126,17 @@ const elements = {
   ExternalContactCsvForm: document.getElementById('ExternalContactCsvForm'),
   ExternalContactCsvFile: document.getElementById('ExternalContactCsvFile'),
   runExternalContactCsvBtn: document.getElementById('runExternalContactCsvBtn'),
+  cannedForm: document.getElementById('cannedForm'),
+  cannedFile: document.getElementById('cannedFile'),
+  cannedReplaceQuestion: document.getElementById('cannedReplaceQuestion'),
+  runCannedBtn: document.getElementById('runCannedBtn'),
+  utilizationForm: document.getElementById('utilizationForm'),
+  utilChannels: document.getElementById('utilChannels'),
+  utilJson: document.getElementById('utilJson'),
+  utilError: document.getElementById('utilError'),
+  resetUtilBtn: document.getElementById('resetUtilBtn'),
+  utilizationFile: document.getElementById('utilizationFile'),
+  runUtilizationBtn: document.getElementById('runUtilizationBtn'),
   roleAssignForm: document.getElementById('roleAssignForm'),
   divisionSelect: document.getElementById('divisionSelect'),
   divisionFilter: document.getElementById('divisionFilter'),
@@ -272,6 +283,14 @@ function setBusy(isBusy) {
     elements.ExternalContactCsvFile,
     elements.runScheduleCsvBtn,
     elements.runExternalContactCsvBtn,
+    elements.cannedFile,
+    elements.cannedReplaceQuestion,
+    elements.runCannedBtn,
+    elements.utilChannels,
+    elements.utilJson,
+    elements.resetUtilBtn,
+    elements.utilizationFile,
+    elements.runUtilizationBtn,
     elements.divisionSelect,
     elements.divisionFilter,
     elements.reloadDivisionsBtn,
@@ -1496,14 +1515,18 @@ function parseEmailList(text) {
   return lines;
 }
 
-async function postWithRateLimitRetry(path, body) {
-  let response = await apiPost(path, body);
+async function sendWithRateLimitRetry(method, path, body) {
+  let response = await apiSend(method, path, body);
   for (let attempt = 1; response.status === 429 && attempt <= GROUP_MAX_RETRIES_429; attempt += 1) {
     logWarning(`Rate limited by Genesys Cloud. Waiting ${attempt * 3}s before retrying...`);
     await sleep(attempt * 3000);
-    response = await apiPost(path, body);
+    response = await apiSend(method, path, body);
   }
   return response;
+}
+
+function postWithRateLimitRetry(path, body) {
+  return sendWithRateLimitRetry('POST', path, body);
 }
 
 async function addUserToGroup(groupId, userId) {
@@ -1666,6 +1689,495 @@ async function processRoleAssignFile(file, division, role) {
     refreshAuthState();
     setBusy(false);
     if (elements.rolesEmailsFile) elements.rolesEmailsFile.value = '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk: upload canned responses (Excel or CSV)
+// ---------------------------------------------------------------------------
+
+const CANNED_ROW_DELAY_MS = 1000;
+
+function loadSpreadsheetLibrary() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/xlsx.full.min.js?v=1';
+    script.onload = () => resolve(window.XLSX);
+    script.onerror = () => reject(new Error('Could not load the Excel reader (vendor/xlsx.full.min.js is missing).'));
+    document.head.appendChild(script);
+  });
+}
+
+async function readSpreadsheetRows(file) {
+  if (/\.csv$/i.test(file.name)) {
+    return parseCsvText(await file.text());
+  }
+
+  const XLSX = await loadSpreadsheetLibrary();
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+}
+
+// Same transformation as the original script: re-serialise the HTML (like BeautifulSoup),
+// turn the agent first-name tag into the AGENT_ALIAS substitution and optionally drop "?".
+function cleanCannedHtml(html, replaceQuestionMarks) {
+  const template = document.createElement('template'); // inert: nothing is loaded or executed
+  template.innerHTML = html;
+
+  let result = template.innerHTML.replace(/&lt;\$Agent\.FirstName\$&gt;/g, '{{AGENT_ALIAS}}');
+  if (replaceQuestionMarks) result = result.replace(/\?/g, ' ');
+  return result;
+}
+
+async function findResponseLibrary(prefix, cache) {
+  if (cache.has(prefix)) return cache.get(prefix);
+
+  const response = await apiGet('/api/v2/responsemanagement/libraries', { libraryPrefix: prefix });
+  let result;
+
+  if (!response.ok) {
+    result = { ok: false, message: `Failure getting library: ${response.status} - ${response.statusText} - ${response.raw || ''}` };
+  } else {
+    const entities = Array.isArray(response.data?.entities) ? response.data.entities : [];
+    if (!entities.length) {
+      result = { ok: false, message: `Library not found for prefix: ${prefix}` };
+    } else {
+      result = { ok: true, library: entities[0], matches: entities.length };
+    }
+  }
+
+  cache.set(prefix, result);
+  return result;
+}
+
+async function processCannedResponsesFile(file, replaceQuestionMarks) {
+  clearOutput();
+  updateSummary('Uploading canned responses...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const rows = await readSpreadsheetRows(file);
+
+    if (!rows.length) {
+      logError('The file is empty or could not be parsed.');
+      updateSummary('Stopped: no rows found.');
+      return;
+    }
+
+    if (
+      !hasCsvHeader(rows, ['TEMPLATENAMEFIN']) ||
+      !hasCsvHeader(rows, ['libraryPrefix']) ||
+      !hasCsvHeader(rows, ['BODY'])
+    ) {
+      logError('The file must contain the columns TEMPLATENAMEFIN, libraryPrefix and BODY.');
+      updateSummary('Stopped: invalid columns.');
+      return;
+    }
+
+    logInfo(`File loaded: ${file.name}`);
+    logInfo(`Rows to process: ${rows.length}`);
+    logInfo(replaceQuestionMarks ? 'Question marks in the body will be replaced with a space.' : 'Question marks in the body are kept.');
+
+    const libraryCache = new Map();
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const rowNumber = index + 2;
+      const row = rows[index];
+      const name = getRowValueByHeader(row, ['TEMPLATENAMEFIN']);
+      const prefix = getRowValueByHeader(row, ['libraryPrefix']);
+      const bodyKey = Object.keys(row).find((key) => asTrimmedString(key).toLowerCase() === 'body');
+      const html = bodyKey === undefined ? '' : String(row[bodyKey] ?? '');
+
+      if (!name) {
+        logWarning(`Row ${rowNumber}: TEMPLATENAMEFIN empty. Skipped.`);
+        skipped += 1;
+        continue;
+      }
+      if (!prefix) {
+        logWarning(`Row ${rowNumber}: libraryPrefix empty. Skipped (${name}).`);
+        skipped += 1;
+        continue;
+      }
+      if (!html.trim()) {
+        logWarning(`Row ${rowNumber}: BODY empty. Skipped (${name}).`);
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        const lookup = await findResponseLibrary(prefix, libraryCache);
+        if (!lookup.ok) {
+          logError(`Row ${rowNumber}: ${lookup.message} - Template: ${name}`);
+          failed += 1;
+          continue;
+        }
+
+        const library = lookup.library;
+        if (lookup.matches > 1 && !lookup.reported) {
+          lookup.reported = true;
+          logWarning(`Prefix ${prefix} matches ${lookup.matches} libraries. Using the first one: ${library.name}.`);
+        }
+
+        const requestBody = {
+          name,
+          libraries: [{ id: library.id, name: library.name, selfUri: library.selfUri }],
+          texts: [{ content: cleanCannedHtml(html, replaceQuestionMarks), contentType: 'text/html' }],
+          substitutions: [{ id: 'AGENT_ALIAS' }],
+          version: 0
+        };
+
+        const response = await postWithRateLimitRetry('/api/v2/responsemanagement/responses', requestBody);
+
+        if (response.ok) {
+          logSuccess(`Row ${rowNumber}: canned response created: ${name} (${library.name})`);
+          created += 1;
+        } else {
+          const detail = response.data?.message || response.raw || response.statusText;
+          logError(`Row ${rowNumber}: Failure ${response.status} - ${name} - ${detail}`);
+          failed += 1;
+        }
+      } catch (err) {
+        logError(`Row ${rowNumber}: ${name} -> ${err.message || err}`);
+        failed += 1;
+      }
+
+      if (index < rows.length - 1) await sleep(CANNED_ROW_DELAY_MS);
+    }
+
+    logInfo('Canned responses processing completed.');
+    updateSummary(`Canned responses finished: ${created} created, ${skipped} skipped, ${failed} failed.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Canned responses stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.cannedFile) elements.cannedFile.value = '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk: agent utilization
+// ---------------------------------------------------------------------------
+
+const UTIL_CHANNELS = [
+  ['call', 'Call'],
+  ['callback', 'Callback'],
+  ['chat', 'Chat'],
+  ['email', 'Email'],
+  ['message', 'Message'],
+  ['workitem', 'Workitem']
+];
+
+// Same body as the original script.
+function defaultUtilizationBody() {
+  return {
+    utilization: {
+      callback: { maximumCapacity: 1, interruptableMediaTypes: [], includeNonAcd: false },
+      message: { maximumCapacity: 2, interruptableMediaTypes: [], includeNonAcd: false },
+      email: { maximumCapacity: 1, interruptableMediaTypes: [], includeNonAcd: false },
+      call: { maximumCapacity: 1, interruptableMediaTypes: [], includeNonAcd: false },
+      workitem: {
+        maximumCapacity: 4,
+        interruptableMediaTypes: ['call', 'callback', 'chat', 'email', 'message'],
+        includeNonAcd: true
+      }
+    },
+    labelUtilizations: {},
+    level: 'Agent'
+  };
+}
+
+let utilBody = defaultUtilizationBody();
+let utilJsonInvalid = false;
+
+function validateUtilizationBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'The body must be a JSON object.';
+
+  const utilization = body.utilization;
+  if (!utilization || typeof utilization !== 'object' || Array.isArray(utilization)) {
+    return 'The body needs a "utilization" object.';
+  }
+
+  const entries = Object.entries(utilization);
+  if (!entries.length) return 'Enable at least one channel.';
+
+  for (const [channel, config] of entries) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      return `${channel}: the configuration must be an object.`;
+    }
+    if (!Number.isInteger(config.maximumCapacity) || config.maximumCapacity < 0) {
+      return `${channel}: maximum capacity must be a whole number (0 or more).`;
+    }
+    if (
+      config.interruptableMediaTypes !== undefined &&
+      (!Array.isArray(config.interruptableMediaTypes) || config.interruptableMediaTypes.some((type) => typeof type !== 'string'))
+    ) {
+      return `${channel}: interruptableMediaTypes must be a list of channel names.`;
+    }
+    if (config.includeNonAcd !== undefined && typeof config.includeNonAcd !== 'boolean') {
+      return `${channel}: includeNonAcd must be true or false.`;
+    }
+  }
+
+  return '';
+}
+
+function setUtilError(message) {
+  elements.utilError.textContent = message;
+  elements.utilError.hidden = !message;
+}
+
+function showUtilValidation() {
+  if (utilJsonInvalid) return;
+  setUtilError(validateUtilizationBody(utilBody));
+}
+
+function syncUtilJson() {
+  elements.utilJson.value = JSON.stringify(utilBody, null, 2);
+  utilJsonInvalid = false;
+}
+
+function renderUtilForm() {
+  const container = elements.utilChannels;
+  container.innerHTML = '';
+
+  for (const [key, label] of UTIL_CHANNELS) {
+    const config = utilBody.utilization?.[key];
+    const enabled = Boolean(config) && typeof config === 'object';
+
+    const block = document.createElement('div');
+    block.className = `util-channel${enabled ? '' : ' is-off'}`;
+    block.dataset.channel = key;
+
+    // Header: include toggle + capacity
+    const head = document.createElement('div');
+    head.className = 'util-head';
+
+    const includeLabel = document.createElement('label');
+    includeLabel.className = 'check util-name';
+    const include = document.createElement('input');
+    include.type = 'checkbox';
+    include.dataset.role = 'include';
+    include.checked = enabled;
+    const includeText = document.createElement('span');
+    includeText.textContent = label;
+    includeLabel.append(include, includeText);
+
+    const capLabel = document.createElement('label');
+    capLabel.className = 'util-cap';
+    const capText = document.createElement('span');
+    capText.textContent = 'Max capacity';
+    const cap = document.createElement('input');
+    cap.type = 'number';
+    cap.min = '0';
+    cap.step = '1';
+    cap.inputMode = 'numeric';
+    cap.dataset.role = 'cap';
+    cap.disabled = !enabled;
+    cap.value = enabled && config.maximumCapacity !== null && config.maximumCapacity !== undefined ? String(config.maximumCapacity) : '';
+    capLabel.append(capText, cap);
+
+    head.append(includeLabel, capLabel);
+    block.appendChild(head);
+
+    // Details: interruptible by + non-ACD
+    const body = document.createElement('div');
+    body.className = 'util-body';
+
+    const interruptBy = document.createElement('div');
+    interruptBy.className = 'util-interrupt';
+    const interruptTitle = document.createElement('span');
+    interruptTitle.className = 'util-interrupt-title';
+    interruptTitle.textContent = 'Can be interrupted by';
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+
+    const current = enabled && Array.isArray(config.interruptableMediaTypes) ? config.interruptableMediaTypes : [];
+    for (const [otherKey, otherLabel] of UTIL_CHANNELS) {
+      if (otherKey === key) continue;
+      const chip = document.createElement('label');
+      chip.className = 'chip-check';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.dataset.role = 'int';
+      box.dataset.type = otherKey;
+      box.checked = current.includes(otherKey);
+      box.disabled = !enabled;
+      const text = document.createElement('span');
+      text.textContent = otherLabel;
+      chip.append(box, text);
+      chips.appendChild(chip);
+    }
+    interruptBy.append(interruptTitle, chips);
+
+    const nonAcdLabel = document.createElement('label');
+    nonAcdLabel.className = 'check';
+    const nonAcd = document.createElement('input');
+    nonAcd.type = 'checkbox';
+    nonAcd.dataset.role = 'nonacd';
+    nonAcd.checked = enabled && config.includeNonAcd === true;
+    nonAcd.disabled = !enabled;
+    const nonAcdText = document.createElement('span');
+    nonAcdText.textContent = 'Include non-ACD interactions';
+    nonAcdLabel.append(nonAcd, nonAcdText);
+
+    body.append(interruptBy, nonAcdLabel);
+    block.appendChild(body);
+    container.appendChild(block);
+  }
+}
+
+function handleUtilFormEvent(event) {
+  const target = event.target;
+  const block = target.closest?.('.util-channel');
+  const role = target.dataset?.role;
+  if (!block || !role) return;
+  if (event.type === 'input' && role !== 'cap') return;
+
+  const key = block.dataset.channel;
+  if (!utilBody.utilization || typeof utilBody.utilization !== 'object') utilBody.utilization = {};
+
+  if (role === 'include') {
+    if (target.checked) {
+      utilBody.utilization[key] = { maximumCapacity: 1, interruptableMediaTypes: [], includeNonAcd: false };
+    } else {
+      delete utilBody.utilization[key];
+    }
+    renderUtilForm();
+  } else {
+    const config = utilBody.utilization[key];
+    if (!config) return;
+
+    if (role === 'cap') {
+      const raw = target.value.trim();
+      config.maximumCapacity = raw === '' ? null : Number(raw);
+    } else if (role === 'nonacd') {
+      config.includeNonAcd = target.checked;
+    } else if (role === 'int') {
+      const list = Array.isArray(config.interruptableMediaTypes) ? config.interruptableMediaTypes : [];
+      const type = target.dataset.type;
+      config.interruptableMediaTypes = target.checked
+        ? (list.includes(type) ? list : [...list, type])
+        : list.filter((candidate) => candidate !== type);
+    }
+  }
+
+  syncUtilJson();
+  showUtilValidation();
+}
+
+function handleUtilJsonInput() {
+  try {
+    const parsed = JSON.parse(elements.utilJson.value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('the body must be a JSON object.');
+    }
+    utilBody = parsed;
+    utilJsonInvalid = false;
+    renderUtilForm();
+    showUtilValidation();
+  } catch (err) {
+    utilJsonInvalid = true;
+    setUtilError(`Invalid JSON: ${err.message}`);
+  }
+}
+
+function initUtilizationForm() {
+  renderUtilForm();
+  syncUtilJson();
+  showUtilValidation();
+
+  elements.utilChannels.addEventListener('change', handleUtilFormEvent);
+  elements.utilChannels.addEventListener('input', handleUtilFormEvent);
+  elements.utilJson.addEventListener('input', handleUtilJsonInput);
+
+  elements.resetUtilBtn.addEventListener('click', () => {
+    utilBody = defaultUtilizationBody();
+    renderUtilForm();
+    syncUtilJson();
+    showUtilValidation();
+  });
+}
+
+async function processUtilizationFile(file, body) {
+  clearOutput();
+  updateSummary('Updating utilization...');
+  setBusy(true);
+  refreshAuthState();
+
+  try {
+    const rawEmails = parseEmailList(await file.text());
+
+    if (!rawEmails.length) {
+      logError('The file is empty. Provide one email per line.');
+      updateSummary('Stopped: no emails found.');
+      return;
+    }
+
+    const { emails, skipped } = prepareEmailList(rawEmails);
+
+    logInfo(`File loaded: ${file.name}`);
+    logInfo(`Utilization body: ${JSON.stringify(body)}`);
+    logInfo(`Emails to process: ${emails.length}`);
+
+    let updated = 0;
+    let notFound = 0;
+    let failed = 0;
+
+    for (let index = 0; index < emails.length; index += 1) {
+      const email = emails[index];
+
+      try {
+        const lookup = await findAgentEmail(email);
+        if (!lookup.ok) {
+          if (/not found/i.test(lookup.message)) {
+            logError(`NOT FOUND: ${email}`);
+            notFound += 1;
+          } else {
+            logError(`${email}: ${lookup.message}`);
+            failed += 1;
+          }
+        } else {
+          const response = await sendWithRateLimitRetry(
+            'PUT',
+            `/api/v2/routing/users/${encodeURIComponent(lookup.AgentId)}/utilization`,
+            body
+          );
+
+          if (response.ok) {
+            logSuccess(`Utilization assigned to ${email} (${lookup.AgentId})`);
+            updated += 1;
+          } else {
+            const detail = response.data?.message || response.raw || response.statusText;
+            logError(`HTTP ERROR: ${email} -> ${response.status} -> ${detail}`);
+            failed += 1;
+          }
+        }
+      } catch (err) {
+        logError(`GENERAL ERROR: ${email} -> ${err.message || err}`);
+        failed += 1;
+      }
+
+      if (index < emails.length - 1) await sleep(GROUP_ADD_DELAY_MS);
+    }
+
+    logInfo('Utilization processing completed.');
+    updateSummary(`Utilization finished: ${updated} updated, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
+  } catch (err) {
+    logError(err.message || String(err));
+    updateSummary(`Utilization stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+  } finally {
+    refreshAuthState();
+    setBusy(false);
+    if (elements.utilizationFile) elements.utilizationFile.value = '';
   }
 }
 
@@ -2476,6 +2988,54 @@ if (elements.ExternalContactCsvForm) {
 
     const group = groupsPicker.find(groupId);
     await processGroupMembersFile(file, group || { id: groupId, name: groupId });
+  });
+
+  initUtilizationForm();
+
+  elements.cannedForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const file = elements.cannedFile?.files?.[0];
+    if (!file) {
+      clearOutput();
+      logError('Select an Excel or CSV file first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    await processCannedResponsesFile(file, elements.cannedReplaceQuestion.checked);
+  });
+
+  elements.utilizationForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const file = elements.utilizationFile?.files?.[0];
+
+    if (utilJsonInvalid) {
+      clearOutput();
+      logError('The JSON body is not valid. Fix it before applying.');
+      return;
+    }
+
+    const problem = validateUtilizationBody(utilBody);
+    if (problem) {
+      clearOutput();
+      logError(problem);
+      return;
+    }
+
+    if (!file) {
+      clearOutput();
+      logError('Select a file with the emails first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    await processUtilizationFile(file, JSON.parse(JSON.stringify(utilBody)));
   });
 
   elements.roleAssignForm.addEventListener('submit', async (event) => {

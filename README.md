@@ -72,6 +72,24 @@ Bulk tools -> **Role update**.
 
 The ids come from the dropdowns, so a role or division name can never end up in the URL. Invalid emails and duplicates are skipped with a warning, and a 429 response is retried automatically.
 
+## Upload canned responses (bulk)
+
+Bulk tools -> **Canned responses**. Upload an Excel (`.xlsx`/`.xls`, first sheet) or CSV file with the columns:
+
+- `TEMPLATENAMEFIN`: the name of the response
+- `libraryPrefix`: used to find the response library (`GET /api/v2/responsemanagement/libraries?libraryPrefix=...`, first match; looked up once per prefix)
+- `BODY`: the HTML of the response
+
+For each row the app creates the response with `POST /api/v2/responsemanagement/responses` (HTML text, `AGENT_ALIAS` substitution), pausing 1 s between rows, exactly like the original Python script. The body is re-serialised as HTML, `<$Agent.FirstName$>` becomes `{{AGENT_ALIAS}}`, and, as in the script, every `?` is replaced with a space. Untick that option if your bodies contain links with query strings or real question marks.
+
+Excel files are read in the browser with SheetJS, bundled in `vendor/xlsx.full.min.js` (Apache-2.0, see `vendor/xlsx.LICENSE`) and loaded only when needed. Files are never uploaded anywhere except to Genesys Cloud.
+
+## Agent utilization (bulk)
+
+Bulk tools -> **Utilization**. Build the request body with the form: tick the channels to configure (call, callback, chat, email, message, workitem), set the maximum capacity and choose which other channels can interrupt each one. **Edit the request body as JSON** shows the exact body, and edits there update the form (and vice versa). The default is the body of the original script.
+
+Upload a `.txt` file with one email per line. For each user the app calls `PUT /api/v2/routing/users/{userId}/utilization` with the body, pausing 0.5 s between users. The body is validated first (whole-number capacities, valid lists).
+
 ## Country mapping
 
 The original Python script only included datatable IDs for:
@@ -103,3 +121,4 @@ The dropdown includes the other original country codes, but they are marked as n
 - **Only warnings and errors** hides informational and success lines; **Copy** puts the whole report on the clipboard (with timestamps and severity) for pasting into a ticket.
 - Added the **DNIS checker** (see above)
 - Added bulk **Add to group** with a group dropdown loaded from `/api/v2/groups` (see above)
+- Added bulk **Canned responses** upload (Excel/CSV) and bulk **Utilization** update with a form and a JSON editor
