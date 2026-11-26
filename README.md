@@ -90,6 +90,26 @@ Bulk tools -> **Utilization**. Build the request body with the form: tick the ch
 
 Upload a `.txt` file with one email per line. For each user the app calls `PUT /api/v2/routing/users/{userId}/utilization` with the body, pausing 0.5 s between users. The body is validated first (whole-number capacities, valid lists).
 
+## Call analyzer
+
+The **Call analyzer** section (top bar) analyses a call from its flow execution history.
+
+1. Enter a conversation id and press **Analyze call**. The app:
+   - finds the flow executions of the conversation (`POST /api/v2/flows/instances/query`, `ConversationId eq ...`),
+   - skips `workflow` flows,
+   - for each flow starts a download job (`GET /api/v2/flows/instances/{instanceId}`), polls it (`GET /api/v2/flows/instances/jobs/{jobId}`), resolves the signed URL (`GET /api/v2/downloads/{id}?issueRedirect=false`) and downloads the JSON.
+2. The report shows, per flow in chronological order: the data table lookups (table, **key sent**, found / not found and **values received**), the menus and inputs (prompts played and what the customer pressed or said), common modules called, transfers (queue and skills, flow, user, number...), errors and warnings, plus a call summary with the **final destination** and the journey of the call.
+3. **Show all actions** reveals every other action and task marker; **Show empty values** shows the `NOT_SET`/empty data table values (hidden by default). **Copy summary** puts a plain-text version on the clipboard for tickets and **Download JSON** saves the downloaded execution documents.
+
+You can also analyse files you already have: use **Or analyze an execution JSON file** (it accepts several files, and the output of **Download JSON**). This needs no sign-in.
+
+Requirements and limits:
+
+- Historical flow execution data must be enabled in the organization and the flow republished afterwards. Genesys Cloud keeps it for 10 days only.
+- Data table values and menu input are only recorded when the flow's execution log level is `all`; the report warns when the level is lower.
+- The final file is downloaded from a signed URL. If the browser blocks it (CORS), the report shows the link: download the file and load it with the file option above.
+- The signed-in user needs permission to view flow execution history in Architect.
+
 ## Country mapping
 
 The original Python script only included datatable IDs for:
@@ -122,3 +142,4 @@ The dropdown includes the other original country codes, but they are marked as n
 - Added the **DNIS checker** (see above)
 - Added bulk **Add to group** with a group dropdown loaded from `/api/v2/groups` (see above)
 - Added bulk **Canned responses** upload (Excel/CSV) and bulk **Utilization** update with a form and a JSON editor
+- Added the **Call analyzer** (flow execution history of a conversation: flows, data table lookups, menus, final destination)

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
   <header class="topbar">
@@ -17,6 +17,11 @@
         <h1>Genesys Service Checker</h1>
       </div>
 
+      <nav class="view-nav" aria-label="Sections">
+        <button id="navChecker" type="button" class="view-tab active" aria-current="page">Checker</button>
+        <button id="navAnalyzer" type="button" class="view-tab" aria-current="false">Call analyzer</button>
+      </nav>
+
       <div class="session">
         <span id="authStatus" class="status-pill status-idle" role="status">Not signed in</span>
         <button id="loginBtn" type="button">Sign in</button>
@@ -25,7 +30,7 @@
     </div>
   </header>
 
-  <main class="workspace">
+  <main id="checkerView" class="workspace">
 
     <!-- CHECK A SERVICE -->
     <section class="panel area-check" aria-labelledby="check-title">
@@ -369,6 +374,35 @@
 
   </main>
 
+  <!-- CALL ANALYZER -->
+  <main id="analyzerView" class="analyzer" hidden>
+    <section class="panel analyzer-input" aria-labelledby="analyzer-title">
+      <h2 id="analyzer-title">Call analyzer</h2>
+      <p class="panel-intro">
+        Enter a conversation id to see the flows the call went through, the data table lookups
+        (key sent and values received), the menus the customer used and the final destination.
+        Workflow flows are not analysed.
+      </p>
+
+      <form id="analyzerForm" class="analyzer-form" novalidate>
+        <label class="analyzer-id">
+          <span>Conversation id</span>
+          <input id="conversationId" name="conversationId" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" spellcheck="false" required>
+        </label>
+        <button id="analyzeBtn" type="submit">Analyze call</button>
+      </form>
+
+      <label class="file-alt">
+        <span>Or analyze an execution JSON file you already downloaded</span>
+        <input id="analyzerFile" name="analyzerFile" type="file" accept=".json,application/json" multiple>
+      </label>
+
+      <p id="analyzerStatus" class="analyzer-status" role="status"></p>
+    </section>
+
+    <div id="analyzerResult" class="analyzer-result" aria-live="polite"></div>
+  </main>
+
   <!-- SIGN-IN DIALOG: the OAuth Client ID is typed here, never stored in the repository -->
   <dialog id="loginDialog" aria-labelledby="login-title" aria-describedby="login-desc">
     <form id="loginForm" class="dialog-body" novalidate>
@@ -406,7 +440,9 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=12"></script>
-  <script src="app.js?v=12"></script>
+  <script src="config.js?v=13"></script>
+  <script src="app.js?v=13"></script>
+  <script src="analyzer.js?v=1"></script>
+  <script src="analyzer-ui.js?v=1"></script>
 </body>
 </html>
