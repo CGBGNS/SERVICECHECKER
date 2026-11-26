@@ -276,6 +276,32 @@
     };
   }
 
+  /* ---- common modules left out of the analysis -------------------------- */
+
+  // Logging modules add a lot of noise and little information.
+  // A module is skipped when its name (or its action name) STARTS WITH one of these, ignoring case,
+  // spaces, hyphens and underscores, so "MCT_Common_Logging_IVR", "mct common logging" or
+  // "MCT_Common_Logging_IVR v2" all match.
+  const BUILD = '3';
+  const IGNORED_MODULES = ['MCT_Common_Logging_IVR', 'MCT_Common_Logging'];
+  const normalizeName = (name) => str(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ignoredPrefixes = IGNORED_MODULES.map(normalizeName);
+  const isIgnoredModule = (...names) =>
+    names.some((name) => {
+      const normalized = normalizeName(name);
+      return normalized !== '' && ignoredPrefixes.some((prefix) => normalized.startsWith(prefix));
+    });
+
+  // Never hide a real problem: a skipped module that reports errors/warnings is kept.
+  function subtreeHasProblems(payload) {
+    if (!isObj(payload)) return false;
+    if (asArray(payload.errors).length || asArray(payload.warnings).length) return true;
+    return asArray(payload.execution).some((child) => {
+      const event = unwrapEvent(child);
+      return event ? subtreeHasProblems(event.payload) : false;
+    });
+  }
+
   /* ---- walking the execution tree -------------------------------------- */
 
   function analyzeExecution(doc) {
@@ -285,7 +311,7 @@
       throw new Error(`Unrecognised execution document (top-level keys: ${keys.join(', ') || 'none'}). Expected { flow: { execution: [...] } }.`);
     }
 
-    const ctx = { steps: [], task: '', startMs: Date.parse(flow.startDateTime), startVars: {} };
+    const ctx = { steps: [], task: '', startMs: Date.parse(flow.startDateTime), startVars: {}, omittedModules: 0, modules: new Map() };
 
     const makeStep = (kind, type, payload, depth, scope, extra) => {
       const timeMs = Date.parse(payload.dateTime || payload.timestamp);
@@ -356,7 +382,21 @@
       } else if (/^actionCallCommonModule$/i.test(type)) {
         const module = input.commonModule || {};
         const name = str(module.flowName) || str(payload.actionName) || 'Common module';
-        ctx.steps.push(makeStep('module', type, payload, depth, scope, { name, version: str(module.flowVersion) }));
+        const ignorable = isIgnoredModule(module.flowName, payload.actionName, name);
+        const keptForProblems = ignorable && subtreeHasProblems(payload);
+        const seen = ctx.modules.get(name) || { name, count: 0, omitted: ignorable && !keptForProblems, keptForProblems };
+        seen.count += 1;
+        ctx.modules.set(name, seen);
+
+        if (ignorable && !keptForProblems) {
+          ctx.omittedModules += 1;
+          return;
+        }
+        ctx.steps.push(makeStep('module', type, payload, depth, scope, {
+          name,
+          version: str(module.flowVersion),
+          note: keptForProblems ? 'Normally omitted (logging module). Shown because it reports errors or warnings.' : ''
+        }));
         walk(payload.execution, depth + 1, { module: name });
       } else {
         ctx.steps.push(makeStep('other', type, payload, depth, scope, {}));
@@ -393,6 +433,8 @@
       remoteName: startStep?.remoteName || '',
       language: startStep?.language || '',
       exitReason: endStep?.exitReason || '',
+      omittedModules: ctx.omittedModules,
+      modules: Array.from(ctx.modules.values()),
       steps,
       counts: {
         datatables: steps.filter((step) => step.kind === 'datatable').length,
@@ -528,6 +570,8 @@
     isEmptyValue,
     formatClock,
     formatDuration,
-    KIND_LABELS
+    KIND_LABELS,
+    IGNORED_MODULES,
+    BUILD
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -109,6 +109,8 @@ Requirements and limits:
 - Data table values and menu input are only recorded when the flow's execution log level is `all`; the report warns when the level is lower.
 - The final file is downloaded from a signed URL. If the browser blocks it (CORS), the report shows the link: download the file and load it with the file option above.
 - The signed-in user needs permission to view flow execution history in Architect.
+- The common modules whose name starts with `MCT_Common_Logging_IVR` or `MCT_Common_Logging` (ignoring case, spaces, hyphens and underscores), and everything inside them, are left out of the analysis. Each flow lists every common module it called with its exact name (omitted ones appear struck through) and how many calls were omitted. A skipped module that reports errors or warnings is still shown, with a note. To change the list, edit `IGNORED_MODULES` in `analyzer.js`.
+- The analyzer panel shows `Call analyzer build N`: if the number is lower than expected after an update, the browser is using cached files (hard refresh with Ctrl+Shift+R).
 
 ## Country mapping
 

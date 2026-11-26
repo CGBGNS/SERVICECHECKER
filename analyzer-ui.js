@@ -523,7 +523,8 @@
         return el('div', { class: 'line line-module' },
           el('span', { class: 'kind kind-module', text: 'Module' }),
           el('strong', { text: step.name }),
-          step.version ? el('span', { class: 'muted', text: ` v${step.version}` }) : null
+          step.version ? el('span', { class: 'muted', text: ` v${step.version}` }) : null,
+          step.note ? el('div', { class: 'step-note', text: step.note }) : null
         );
       default:
         return el('div', { class: 'line line-other' },
@@ -559,6 +560,21 @@
     return 'neutral';
   }
 
+  // Lists every common module called, with its exact name, and which ones were left out.
+  function renderModules(instance) {
+    if (!instance.modules || !instance.modules.length) return null;
+    return el('div', { class: 'modules-line' },
+      el('span', { class: 'modules-label', text: 'Common modules' }),
+      instance.modules.map((module) =>
+        el('span', {
+          class: `module-chip${module.omitted ? ' module-omitted' : ''}`,
+          title: module.omitted ? 'Omitted from the analysis' : module.keptForProblems ? 'Normally omitted, shown because it reports problems' : 'Shown in the timeline',
+          text: `${module.name}${module.count > 1 ? ` x${module.count}` : ''}${module.omitted ? ' (omitted)' : ''}`
+        })
+      )
+    );
+  }
+
   function renderFlowCard(instance) {
     const start = Date.parse(instance.meta.startDateTime);
     const end = Date.parse(instance.meta.endDateTime);
@@ -567,7 +583,11 @@
     const head = el('div', { class: 'flow-head' },
       el('div', null,
         el('h3', { text: instance.meta.flowName || 'Flow' }),
-        el('p', { class: 'flow-sub', text: [formatDateTime(start), duration && `duration ${duration}`].filter(Boolean).join('  |  ') })
+        el('p', { class: 'flow-sub', text: [
+          formatDateTime(start),
+          duration && `duration ${duration}`,
+          instance.omittedModules && `${instance.omittedModules} logging module call(s) omitted`
+        ].filter(Boolean).join('  |  ') })
       ),
       el('div', { class: 'flow-badges' },
         instance.meta.flowType ? badge(instance.meta.flowType, 'neutral') : null,
@@ -586,6 +606,7 @@
 
     return el('section', { class: 'panel flow-card' },
       head,
+      renderModules(instance),
       notices.length ? renderNotice('Heads up', notices, 'warning') : null,
       el('ol', { class: 'timeline' }, instance.steps.map(renderStep))
     );
@@ -730,6 +751,9 @@
     const files = Array.from(ui.file.files || []);
     if (files.length) analyzeFiles(files);
   });
+
+  const buildNote = document.getElementById('analyzerBuild');
+  if (buildNote) buildNote.textContent = `Call analyzer build ${A.BUILD}`;
 
   let initialView = 'checker';
   try {
