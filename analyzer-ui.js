@@ -395,9 +395,13 @@
   }
 
   function kvList(rows, className = 'kv') {
-    return el('dl', { class: className }, rows.map(([name, value, extraClass]) =>
-      el('div', { class: extraClass || null }, el('dt', { text: name }), el('dd', { text: value }))
-    ));
+    return el('dl', { class: className }, rows.map(([name, value, extraClass]) => {
+      const text = str(value);
+      return el('div', { class: extraClass || null },
+        el('dt', { text: name }),
+        el('dd', { class: text.length > 160 ? 'kv-long' : null, text })
+      );
+    }));
   }
 
   function rawDetails(raw) {
@@ -461,20 +465,79 @@
     const children = [
       el('div', { class: 'card-head' },
         el('span', { class: 'kind kind-menu', text: step.subtype === 'collect' ? 'Input' : 'Menu' }),
-        el('strong', { text: title })
+        el('strong', { text: title }),
+        step.noMatch ? badge('No match', 'warn') : null,
+        step.noInput ? badge('No input', 'warn') : null
       ),
       contextLine(step)
     ];
 
     const rows = [];
-    if (step.prompts.length) rows.push(['Prompts played', step.prompts.join(', ')]);
-    if (step.customer) rows.push([`Customer ${step.customer.mode === 'Speech' ? 'said' : 'entered'}`, step.customer.value || '(empty)', 'kv-choice']);
-    else rows.push(['Customer input', 'No input recorded']);
+    const customerLabel = `Customer ${step.customer && step.customer.mode === 'Speech' ? 'said' : 'entered'}`;
+    const attempts = (step.turns || []).filter((turn) => turn.prompts.length || turn.input);
+
+    if (attempts.length > 1) {
+      // Several turns: the customer was asked again (no match / no input)
+      attempts.forEach((turn, index) => {
+        rows.push([`Attempt ${index + 1}: prompt`, turn.prompts.join(', ') || '(none)']);
+        rows.push([`Attempt ${index + 1}: customer`, turn.input && turn.input.value !== '' ? turn.input.value : 'No input', turn.input && turn.input.value !== '' ? 'kv-choice' : null]);
+      });
+      if (step.customer) rows.push(['Final choice', step.customer.value || '(empty)', 'kv-choice']);
+    } else {
+      if (step.prompts.length) rows.push(['Prompt played', step.prompts.join(', ')]);
+      if (step.customer) rows.push([customerLabel, step.customer.value || '(empty)', 'kv-choice']);
+      else rows.push(['Customer input', 'No input recorded']);
+    }
+
+    if (step.collectionMode) rows.push(['Input mode', step.collectionMode]);
     if (step.path) rows.push(['Path taken', step.path]);
     children.push(kvList(rows));
 
     children.push(rawDetails(step.raw));
     return el('div', { class: 'card card-menu' }, children);
+  }
+
+  function renderJump(step) {
+    return el('div', { class: 'card card-jump' },
+      el('div', { class: 'card-head' },
+        el('span', { class: 'kind kind-menu', text: 'Jump to menu' }),
+        step.target ? el('strong', { text: step.target }) : el('span', { class: 'muted', text: step.name })
+      ),
+      contextLine(step)
+    );
+  }
+
+  function renderDataAction(step) {
+    const tone = { success: 'ok', failure: 'err', unknown: 'neutral' }[step.result];
+    const label = { success: 'Success', failure: 'Failure', unknown: step.path || 'Done' }[step.result];
+    const title = step.reference && step.name && step.reference !== step.name ? `${step.reference}` : step.reference || step.name;
+
+    const children = [
+      el('div', { class: 'card-head' },
+        el('span', { class: 'kind kind-action', text: 'Data action' }),
+        el('strong', { text: title }),
+        badge(label, tone)
+      ),
+      step.reference && step.name && step.reference !== step.name ? el('div', { class: 'ctx', text: `Action: ${step.name}` }) : null,
+      contextLine(step)
+    ];
+
+    children.push(el('div', { class: 'card-sub', text: 'Inputs sent' }));
+    children.push(step.inputs.length
+      ? kvList(step.inputs.map(([name, value]) => [name, A.fmtValue(value) || '(empty)']), 'kv kv-received')
+      : el('p', { class: 'card-note', text: 'No inputs recorded (they are only stored when the flow log level is "all").' }));
+
+    children.push(el('div', { class: 'card-sub', text: step.outputsFromVariables ? 'Outputs received (assigned variables)' : 'Outputs received' }));
+    if (step.outputs.length) {
+      children.push(kvList(step.outputs.map(([name, value]) => [name, A.fmtValue(value) || '(empty)']), 'kv kv-received'));
+    } else {
+      children.push(el('p', { class: 'card-note', text: step.failed ? 'The action failed, so no outputs were returned.' : 'No outputs recorded.' }));
+    }
+
+    if (step.errorInfo.length) children.push(kvList(step.errorInfo.map(([name, value]) => [name, value, 'kv-error']), 'kv'));
+
+    children.push(rawDetails(step.raw));
+    return el('div', { class: `card card-action${step.failed ? ' card-failed' : ''}` }, children);
   }
 
   function renderTransfer(step) {
@@ -498,6 +561,10 @@
         return renderDatatable(step);
       case 'menu':
         return renderMenu(step);
+      case 'jump':
+        return renderJump(step);
+      case 'dataaction':
+        return renderDataAction(step);
       case 'transfer':
         return renderTransfer(step);
       case 'disconnect':
@@ -688,6 +755,13 @@
       ),
       renderDestination(summary),
       renderJourney(summary),
+      el('div', { class: 'legend', 'aria-label': 'Block colours' },
+        el('span', { class: 'legend-item legend-data', text: 'Data table' }),
+        el('span', { class: 'legend-item legend-menu', text: 'Menu' }),
+        el('span', { class: 'legend-item legend-action', text: 'Data action' }),
+        el('span', { class: 'legend-item legend-transfer', text: 'Transfer' }),
+        el('span', { class: 'legend-item legend-end', text: 'Disconnect / error' })
+      ),
       el('div', { class: 'report-tools' },
         toggle('Show all actions', 'show-all'),
         toggle('Show empty values', 'show-empty'),

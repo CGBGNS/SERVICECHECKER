@@ -62,6 +62,12 @@
       .trim() || str(type);
   }
 
+  // "errorMessage" -> "Error message"
+  function labelize(key) {
+    const text = humanize(key).toLowerCase();
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
   function errorText(entry) {
     if (typeof entry === 'string') return entry;
     if (isObj(entry)) return str(entry.message || entry.errorMessage || entry.errorType || JSON.stringify(entry));
@@ -148,10 +154,10 @@
       if (skipPattern.test(key) || value === null || value === undefined) continue;
       if (Array.isArray(value)) {
         const items = value.map((item) => fmtValue(isObj(item) ? item.skill || item.user || item : item)).filter(Boolean);
-        if (items.length) rows.push([humanize(key), items.join(', ')]);
+        if (items.length) rows.push([labelize(key), items.join(', ')]);
       } else if (!isObj(value) || typeof value.name === 'string' || typeof value.raw === 'string') {
         const text = fmtValue(value);
-        if (text !== '') rows.push([humanize(key), text]);
+        if (text !== '') rows.push([labelize(key), text]);
       }
     }
     return rows.slice(0, 12);
@@ -207,43 +213,135 @@
     return names;
   }
 
-  function extractMenu(type, payload) {
-    const prompts = [];
-    const heard = [];
-
-    prompts.push(...promptNames(payload.inputData?.inputAudio?.audioItems));
-
-    const scanTurns = (events) => {
-      for (const entry of asArray(events)) {
+  // One entry per customer turn: what was played and what the customer entered / said.
+  function extractTurns(events) {
+    const turns = [];
+    const scan = (list) => {
+      for (const entry of asArray(list)) {
         const event = unwrapEvent(entry);
         if (!event) continue;
         if (event.type === 'turn') {
-          prompts.push(...promptNames(event.payload.toParticipant?.audioItems));
           const audio = event.payload.fromParticipant?.audio;
+          let input = null;
           if (isObj(audio)) {
-            if (isObj(audio.dtmf)) heard.push({ mode: 'DTMF', value: audio.dtmf.valueIsRedacted ? '[redacted]' : fmtValue(audio.dtmf.value) });
+            if (isObj(audio.dtmf) && audio.dtmf.value !== undefined && audio.dtmf.value !== null && audio.dtmf.value !== '') {
+              input = { mode: 'DTMF', value: audio.dtmf.valueIsRedacted ? '[redacted]' : fmtValue(audio.dtmf.value) };
+            }
             const alternate = asArray(audio.alternates)[0];
-            if (isObj(alternate)) {
+            if (!input && isObj(alternate)) {
               const key = SPEECH_KEYS.find((candidate) => typeof alternate[candidate] === 'string' && alternate[candidate]);
-              heard.push({ mode: 'Speech', value: key ? alternate[key] : fmtValue(alternate) });
+              input = { mode: 'Speech', value: key ? alternate[key] : fmtValue(alternate) };
             }
           }
+          turns.push({
+            prompts: promptNames(event.payload.toParticipant?.audioItems),
+            input,
+            purpose: str(event.payload.purpose)
+          });
         } else if (isObj(event.payload) && Array.isArray(event.payload.execution)) {
-          scanTurns(event.payload.execution);
+          scan(event.payload.execution);
         }
       }
     };
-    scanTurns(payload.execution);
+    scan(events);
+    return turns;
+  }
+
+  // Used for menu events ("menuMenu") and for menu-like actions (Collect Input...).
+  function extractMenu(type, payload) {
+    const turns = extractTurns(payload.execution);
+    const prompts = promptNames(payload.inputData?.inputAudio?.audioItems);
+    for (const turn of turns) prompts.push(...turn.prompts);
 
     const output = isObj(payload.outputData) ? payload.outputData : {};
     const outputValue = fmtValue(output.inputData ?? output.choice ?? output.selectedOption ?? output.result ?? '');
-    const customer = heard.find((item) => item.value !== '') || (outputValue ? { mode: 'Input', value: outputValue } : null);
+
+    // The last non-empty input is the customer's final choice (earlier turns may be retries).
+    const lastInput = [...turns].reverse().map((turn) => turn.input).find((input) => input && input.value !== '');
+    const customer = lastInput || (outputValue ? { mode: 'Input', value: outputValue } : null);
+
+    const variables = variablesToMap([...asArray(payload.outputVariables), ...asArray(payload.variables)]);
+    const mode = fmtValue(variables['Call.LastCollectionMode']);
 
     return {
       subtype: /collectinput/i.test(type) ? 'collect' : 'menu',
       prompts: Array.from(new Set(prompts.filter(Boolean))),
       customer,
-      heard
+      turns,
+      noMatch: variables['Menu.LastCollectionNoMatch'] === true,
+      noInput: variables['Menu.LastCollectionNoInput'] === true,
+      collectionMode: mode
+    };
+  }
+
+  /* ---- data actions ------------------------------------------------------ */
+
+  const isDataAction = (type) => !/datatable/i.test(type) && (/dataaction/i.test(type) || /^actioncalldata/i.test(type));
+  const isJumpToMenu = (type) => /^action(jumpto|goto|previous|repeat)menu/i.test(type) || /^actionjump.*menu/i.test(type);
+
+  const WRAPPER_KEYS = /^(inputs?|outputs?|result|results|data|response|body|parameters)$/i;
+  const REF_KEYS = /^(dataaction|action|integration)$/i;
+
+  // Turns a payload section into [name, value] rows, whatever shape it has:
+  //   [{ inputName|outputName|name|key, value }]   or   { name: value, ... }   or a wrapper around either.
+  function collectPairs(section) {
+    const rows = [];
+    const addList = (list) => {
+      for (const item of list) {
+        if (!isObj(item)) continue;
+        const name = item.inputName ?? item.outputName ?? item.name ?? item.key ?? item.variableName;
+        if (name !== undefined) rows.push([str(name), item.value]);
+      }
+    };
+
+    if (Array.isArray(section)) {
+      addList(section);
+      return rows;
+    }
+    if (!isObj(section)) return rows;
+
+    for (const [key, value] of Object.entries(section)) {
+      if (REF_KEYS.test(key) && isObj(value)) continue;
+      if (Array.isArray(value) && value.length && value.every((item) => isObj(item) && ('value' in item))) {
+        addList(value);
+      } else if (isObj(value) && WRAPPER_KEYS.test(key)) {
+        rows.push(...collectPairs(value));
+      } else if (!Array.isArray(value) && value !== undefined) {
+        rows.push([key, value]);
+      }
+    }
+    return rows;
+  }
+
+  function extractDataAction(payload) {
+    const input = isObj(payload.inputData) ? payload.inputData : {};
+    const output = isObj(payload.outputData) ? payload.outputData : {};
+
+    const reference = input.dataAction?.name || input.action?.name || str(input.dataActionName) || findNamed(input, /dataaction|integration/i);
+    const inputs = collectPairs(input).filter(([, value]) => value !== null);
+    // Error details are shown separately, not as if they were returned values.
+    const ERROR_KEYS = /^(errortype|errormessage|errorcode)$/i;
+    let outputs = collectPairs(output).filter(([name]) => !ERROR_KEYS.test(name));
+    let outputsFromVariables = false;
+    if (!outputs.length) {
+      outputs = collectPairs(asArray(payload.outputVariables));
+      outputsFromVariables = outputs.length > 0;
+    }
+
+    const pathId = str(payload.outputPathId).toUpperCase();
+    const failed = /FAIL|ERROR|TIMEOUT/.test(pathId);
+    const errorInfo = ['errorType', 'errorMessage', 'errorCode', 'message']
+      .map((key) => (output[key] !== undefined ? [labelize(key), fmtValue(output[key])] : null))
+      .filter(Boolean);
+
+    return {
+      reference: str(reference),
+      inputs,
+      outputs,
+      outputsFromVariables,
+      failed,
+      errorInfo,
+      result: failed ? 'failure' : /SUCCESS/.test(pathId) ? 'success' : 'unknown'
     };
   }
 
@@ -282,7 +380,7 @@
   // A module is skipped when its name (or its action name) STARTS WITH one of these, ignoring case,
   // spaces, hyphens and underscores, so "MCT_Common_Logging_IVR", "mct common logging" or
   // "MCT_Common_Logging_IVR v2" all match.
-  const BUILD = '3';
+  const BUILD = '4';
   const IGNORED_MODULES = ['MCT_Common_Logging_IVR', 'MCT_Common_Logging'];
   const normalizeName = (name) => str(name).toLowerCase().replace(/[^a-z0-9]/g, '');
   const ignoredPrefixes = IGNORED_MODULES.map(normalizeName);
@@ -358,6 +456,13 @@
           ctx.task = '';
         } else if (type === 'startedCommonModule' || type === 'endedCommonModule' || type === 'turn') {
           // Represented by the parent action (module call / menu).
+        } else if (/^menu/i.test(type)) {
+          // Menu events (e.g. "menuMenu"): the prompt played and what the customer entered.
+          ctx.steps.push(makeStep('menu', type, payload, depth, scope, {
+            ...extractMenu(type, payload),
+            name: str(payload.menuName) || humanize(type),
+            menuId: str(payload.menuId)
+          }));
         } else if (/^action/i.test(type)) {
           handleAction(type, payload, depth, scope);
         } else {
@@ -377,6 +482,16 @@
         ctx.steps.push(makeStep('transfer', type, payload, depth, scope, { ...transfer, failed }));
       } else if (/^actionDisconnect$/i.test(type)) {
         ctx.steps.push(makeStep('disconnect', type, payload, depth, scope, {}));
+      } else if (isJumpToMenu(type)) {
+        const target = input.targetMenu?.name || input.menu?.name || str(input.menuName) || findNamed(input, /menu/i);
+        ctx.steps.push(makeStep('jump', type, payload, depth, scope, { target: str(target) }));
+        const children = asArray(payload.execution).filter((child) => {
+          const kid = unwrapEvent(child);
+          return kid && kid.type !== 'turn';
+        });
+        if (children.length) walk(children, depth + 1, scope);
+      } else if (isDataAction(type)) {
+        ctx.steps.push(makeStep('dataaction', type, payload, depth, scope, extractDataAction(payload)));
       } else if (/menu/i.test(type) || /^actionCollectInput$/i.test(type)) {
         ctx.steps.push(makeStep('menu', type, payload, depth, scope, extractMenu(type, payload)));
       } else if (/^actionCallCommonModule$/i.test(type)) {
@@ -439,6 +554,7 @@
       counts: {
         datatables: steps.filter((step) => step.kind === 'datatable').length,
         menus: steps.filter((step) => step.kind === 'menu').length,
+        dataActions: steps.filter((step) => step.kind === 'dataaction').length,
         transfers: steps.filter((step) => step.kind === 'transfer').length,
         errors: steps.reduce((total, step) => total + step.errors.length, 0),
         warnings: steps.reduce((total, step) => total + step.warnings.length, 0)
@@ -549,7 +665,14 @@
           for (const item of outputs) lines.push(`    ${item.name} = ${fmtValue(item.value)}`);
         } else if (step.kind === 'menu') {
           const choice = step.customer ? `${step.customer.mode}: ${step.customer.value}` : 'no input recorded';
-          lines.push(`[${time}] MENU ${step.name} | ${choice}${step.path ? ` | path: ${step.path}` : ''}`);
+          const prompts = step.prompts && step.prompts.length ? ` | prompt: ${step.prompts.join(', ')}` : '';
+          lines.push(`[${time}] MENU ${step.name}${prompts} | ${choice}${step.path ? ` | path: ${step.path}` : ''}`);
+        } else if (step.kind === 'dataaction') {
+          lines.push(`[${time}] DATA ACTION ${step.reference || step.name} | ${step.result.toUpperCase()}`);
+          for (const [name, value] of step.inputs) lines.push(`    in  ${name} = ${fmtValue(value)}`);
+          for (const [name, value] of step.outputs) lines.push(`    out ${name} = ${fmtValue(value)}`);
+        } else if (step.kind === 'jump') {
+          lines.push(`[${time}] JUMP TO MENU${step.target ? `: ${step.target}` : ''}`);
         } else if (step.kind === 'transfer') {
           lines.push(`[${time}] TRANSFER ${KIND_LABELS[step.destKind] || 'Transfer'}: ${step.name || '(unknown)'}${step.failed ? ' (FAILED)' : ''}`);
         } else if (step.kind === 'disconnect') {

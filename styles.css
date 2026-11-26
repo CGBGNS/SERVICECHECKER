@@ -50,6 +50,9 @@
   --kind-data-soft: #e2f3f8;
   --kind-menu: #7336b8;
   --kind-menu-soft: #f0e8fa;
+  --kind-action: #b85a0b;
+  --kind-action-soft: #ffeedd;
+  --inner-bg: rgba(255, 255, 255, 0.7);
 
   --radius-panel: 14px;
   --radius-control: 9px;
@@ -86,6 +89,9 @@
     --kind-data-soft: #0f2a33;
     --kind-menu: #c29cf2;
     --kind-menu-soft: #231a33;
+    --kind-action: #f0a35e;
+    --kind-action-soft: #33200f;
+    --inner-bg: rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -1693,4 +1699,111 @@ dialog::backdrop {
   color: var(--muted);
   font-size: 0.72rem;
   opacity: 0.8;
+}
+
+
+/* ==========================================================================
+   Block colours: every kind of step has its own tinted background
+   ========================================================================== */
+
+.card-data {
+  background: var(--kind-data-soft);
+  border-color: color-mix(in srgb, var(--kind-data) 35%, transparent);
+  border-left-color: var(--kind-data);
+}
+
+.card-menu {
+  background: var(--kind-menu-soft);
+  border-color: color-mix(in srgb, var(--kind-menu) 35%, transparent);
+  border-left-color: var(--kind-menu);
+}
+
+.card-jump {
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--kind-menu) 55%, transparent);
+  border-left: 4px solid var(--kind-menu);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.card-action {
+  background: var(--kind-action-soft);
+  border-color: color-mix(in srgb, var(--kind-action) 35%, transparent);
+  border-left-color: var(--kind-action);
+}
+
+.card-transfer {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-left-color: var(--accent);
+}
+
+.card-disconnect {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 35%, transparent);
+  border-left-color: var(--err);
+}
+
+.card-failed {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 45%, transparent);
+  border-left-color: var(--err);
+}
+
+.card .kv-received {
+  background: var(--inner-bg);
+}
+
+.kind-action { background: var(--kind-action-soft); color: var(--kind-action); }
+.card-action .kind-action { background: var(--inner-bg); }
+.card-data .kind-data { background: var(--inner-bg); }
+.card-menu .kind-menu,
+.card-jump .kind-menu { background: var(--inner-bg); }
+.card-transfer .kind-transfer { background: var(--inner-bg); }
+
+.step-dataaction .dot { border-color: var(--kind-action); background: var(--kind-action); }
+.step-jump .dot { border-color: var(--kind-menu); background: var(--panel); }
+
+.kv-error dd { color: var(--err); }
+
+.kv-long {
+  max-height: 9.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+/* Legend in the summary */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 14px;
+}
+
+.legend-item {
+  padding: 2px 10px;
+  border-left: 4px solid transparent;
+  border-radius: 5px;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.legend-data { background: var(--kind-data-soft); border-left-color: var(--kind-data); color: var(--kind-data); }
+.legend-menu { background: var(--kind-menu-soft); border-left-color: var(--kind-menu); color: var(--kind-menu); }
+.legend-action { background: var(--kind-action-soft); border-left-color: var(--kind-action); color: var(--kind-action); }
+.legend-transfer { background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent); }
+.legend-end { background: var(--err-soft); border-left-color: var(--err); color: var(--err); }
+
+/* The customer's choice must stand out inside the tinted menu card */
+.card-menu .kv-choice dd {
+  min-width: 1.8em;
+  padding: 0 10px;
+  border: 1px solid var(--kind-menu);
+  background: var(--panel);
+  color: var(--kind-menu);
+  text-align: center;
+  font-weight: 700;
 }
