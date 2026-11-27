@@ -113,6 +113,16 @@ Requirements and limits:
 - The common modules whose name starts with `MCT_Common_Logging_IVR` or `MCT_Common_Logging` (ignoring case, spaces, hyphens and underscores), and everything inside them, are left out of the analysis. Each flow lists every common module it called with its exact name (omitted ones appear struck through) and how many calls were omitted. A skipped module that reports errors or warnings is still shown, with a note. To change the list, edit `IGNORED_MODULES` in `analyzer.js`.
 - The analyzer panel shows `Call analyzer build N`: if the number is lower than expected after an update, the browser is using cached files (hard refresh with Ctrl+Shift+R).
 
+## Remove a role from users (bulk)
+
+Bulk tools -> **Remove role**. It works like **Role update** but removes the grant:
+
+1. Choose the **division** and the **role** in the dropdowns (same lists as Role update: `GET /api/v2/authorization/divisions` and `/roles`, with filter and **Reload**).
+2. Upload a `.txt` file with one email per line (a CSV with an `Email` header also works).
+3. Press **Remove role from users** and confirm the prompt (it shows the role, the division and the number of users).
+
+For each user the app finds the user (`POST /api/v2/users/search`, exact email) and calls `POST /api/v2/authorization/subjects/{userId}/bulkremove` with `{"grants":[{"roleId":"...","divisionId":"..."}]}`, pausing 0.5 s between users. Only the selected role in the selected division is removed. Invalid emails and duplicates are skipped with a warning, errors are reported per email, and a 429 response is retried automatically.
+
 ## Country mapping
 
 The original Python script only included datatable IDs for:
@@ -146,3 +156,4 @@ The dropdown includes the other original country codes, but they are marked as n
 - Added bulk **Add to group** with a group dropdown loaded from `/api/v2/groups` (see above)
 - Added bulk **Canned responses** upload (Excel/CSV) and bulk **Utilization** update with a form and a JSON editor
 - Added the **Call analyzer** (flow execution history of a conversation: flows, data table lookups, menus, final destination)
+- Added bulk **Remove role** (division and role dropdowns, confirmation before removing)

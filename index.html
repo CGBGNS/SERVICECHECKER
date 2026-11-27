@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Genesys Service Checker</title>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
   <header class="topbar">
@@ -150,6 +150,15 @@
 
           <button type="button" class="tab-btn"
             role="tab"
+            id="tab-btn-roleremove"
+            aria-selected="false"
+            aria-controls="tab-roleremove"
+            data-tab-target="tab-roleremove">
+            Remove role
+          </button>
+
+          <button type="button" class="tab-btn"
+            role="tab"
             id="tab-btn-groups"
             aria-selected="false"
             aria-controls="tab-groups"
@@ -271,6 +280,50 @@
 
             <div class="actions">
               <button id="runRoleAssignBtn" type="submit">Assign role to users</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- ROLE REMOVAL -->
+        <div id="tab-roleremove" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-roleremove" hidden>
+          <form id="roleRemoveForm" class="stack">
+            <div class="field">
+              <label for="removeDivisionSelect"><span>Division</span></label>
+              <input id="removeDivisionFilter" type="text" placeholder="Type to filter divisions by name" autocomplete="off" spellcheck="false" aria-label="Filter divisions by name">
+              <div class="field-row">
+                <select id="removeDivisionSelect" required>
+                  <option value="">Sign in to load divisions</option>
+                </select>
+                <button id="reloadRemoveDivisionsBtn" type="button" class="secondary small">Reload</button>
+              </div>
+              <p id="removeDivisionsStatus" class="section-note" role="status"></p>
+            </div>
+
+            <div class="field">
+              <label for="removeRoleSelect"><span>Role</span></label>
+              <input id="removeRoleFilter" type="text" placeholder="Type to filter roles by name" autocomplete="off" spellcheck="false" aria-label="Filter roles by name">
+              <div class="field-row">
+                <select id="removeRoleSelect" required>
+                  <option value="">Sign in to load roles</option>
+                </select>
+                <button id="reloadRemoveRolesBtn" type="button" class="secondary small">Reload</button>
+              </div>
+              <p id="removeRolesStatus" class="section-note" role="status"></p>
+            </div>
+
+            <label>
+              <span>Emails file</span>
+              <input id="removeRolesEmailsFile" name="removeRolesEmailsFile" type="file" accept=".txt,.csv,text/plain,text/csv" required>
+            </label>
+
+            <p class="section-note">
+              One email per line. A CSV with an <code>Email</code> header also works.
+              The selected role is removed from every user in the file, only in the selected division.
+              You will be asked to confirm before anything is changed.
+            </p>
+
+            <div class="actions">
+              <button id="runRoleRemoveBtn" type="submit" class="danger">Remove role from users</button>
             </div>
           </form>
         </div>
@@ -442,7 +495,7 @@
   </dialog>
 
   <script src="config.js?v=13"></script>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
   <script src="analyzer.js?v=4"></script>
   <script src="analyzer-ui.js?v=4"></script>
 </body>

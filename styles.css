@@ -1807,3 +1807,18 @@ dialog::backdrop {
   text-align: center;
   font-weight: 700;
 }
+
+
+/* Destructive actions */
+:root { --on-err: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --on-err: #1a0b0a; } }
+
+button.danger {
+  background: var(--err);
+  color: var(--on-err);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--err);
+  filter: brightness(0.92);
+}

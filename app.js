@@ -137,6 +137,17 @@ const elements = {
   resetUtilBtn: document.getElementById('resetUtilBtn'),
   utilizationFile: document.getElementById('utilizationFile'),
   runUtilizationBtn: document.getElementById('runUtilizationBtn'),
+  roleRemoveForm: document.getElementById('roleRemoveForm'),
+  removeDivisionSelect: document.getElementById('removeDivisionSelect'),
+  removeDivisionFilter: document.getElementById('removeDivisionFilter'),
+  removeDivisionsStatus: document.getElementById('removeDivisionsStatus'),
+  reloadRemoveDivisionsBtn: document.getElementById('reloadRemoveDivisionsBtn'),
+  removeRoleSelect: document.getElementById('removeRoleSelect'),
+  removeRoleFilter: document.getElementById('removeRoleFilter'),
+  removeRolesStatus: document.getElementById('removeRolesStatus'),
+  reloadRemoveRolesBtn: document.getElementById('reloadRemoveRolesBtn'),
+  removeRolesEmailsFile: document.getElementById('removeRolesEmailsFile'),
+  runRoleRemoveBtn: document.getElementById('runRoleRemoveBtn'),
   roleAssignForm: document.getElementById('roleAssignForm'),
   divisionSelect: document.getElementById('divisionSelect'),
   divisionFilter: document.getElementById('divisionFilter'),
@@ -291,6 +302,14 @@ function setBusy(isBusy) {
     elements.resetUtilBtn,
     elements.utilizationFile,
     elements.runUtilizationBtn,
+    elements.removeDivisionSelect,
+    elements.removeDivisionFilter,
+    elements.reloadRemoveDivisionsBtn,
+    elements.removeRoleSelect,
+    elements.removeRoleFilter,
+    elements.reloadRemoveRolesBtn,
+    elements.removeRolesEmailsFile,
+    elements.runRoleRemoveBtn,
     elements.divisionSelect,
     elements.divisionFilter,
     elements.reloadDivisionsBtn,
@@ -1471,10 +1490,39 @@ const rolesPicker = createListPicker({
   })
 });
 
+// The "Remove role" tab has its own dropdowns, filled from the same endpoints.
+const removeDivisionsPicker = createListPicker({
+  select: elements.removeDivisionSelect,
+  filter: elements.removeDivisionFilter,
+  status: elements.removeDivisionsStatus,
+  reloadBtn: elements.reloadRemoveDivisionsBtn,
+  path: '/api/v2/authorization/divisions',
+  noun: 'division',
+  nounPlural: 'divisions',
+  toItem: (division, duplicated) => ({
+    label: `${asTrimmedString(division.name)}${division.homeDivision ? ' (home)' : ''}${idSuffix(division, duplicated)}`
+  })
+});
+
+const removeRolesPicker = createListPicker({
+  select: elements.removeRoleSelect,
+  filter: elements.removeRoleFilter,
+  status: elements.removeRolesStatus,
+  reloadBtn: elements.reloadRemoveRolesBtn,
+  path: '/api/v2/authorization/roles',
+  noun: 'role',
+  nounPlural: 'roles',
+  toItem: (role, duplicated) => ({
+    label: `${asTrimmedString(role.name)}${idSuffix(role, duplicated)}`
+  })
+});
+
 function resetPickers() {
   groupsPicker.reset();
   divisionsPicker.reset();
   rolesPicker.reset();
+  removeDivisionsPicker.reset();
+  removeRolesPicker.reset();
 }
 
 // Shared by the bulk tools that take a list of emails: drops invalid lines and duplicates.
@@ -1618,9 +1666,38 @@ async function processGroupMembersFile(file, group) {
   }
 }
 
-async function processRoleAssignFile(file, division, role) {
+// Assign or remove one role (in one division) for every user in a list of emails.
+const ROLE_MODES = {
+  assign: {
+    busy: 'Assigning role...',
+    done: 'Role assignment completed.',
+    summary: 'Role update',
+    verb: 'assigned',
+    file: () => elements.rolesEmailsFile,
+    request: (userId, division, role) =>
+      postWithRateLimitRetry(
+        `/api/v2/authorization/subjects/${encodeURIComponent(userId)}/divisions/${encodeURIComponent(division.id)}/roles/${encodeURIComponent(role.id)}`
+      ),
+    success: (email, userId) => `Role assigned to ${email} (${userId})`
+  },
+  remove: {
+    busy: 'Removing role...',
+    done: 'Role removal completed.',
+    summary: 'Role removal',
+    verb: 'removed',
+    file: () => elements.removeRolesEmailsFile,
+    request: (userId, division, role) =>
+      postWithRateLimitRetry(`/api/v2/authorization/subjects/${encodeURIComponent(userId)}/bulkremove`, {
+        grants: [{ roleId: role.id, divisionId: division.id }]
+      }),
+    success: (email, userId) => `Role removed from ${email} (${userId})`
+  }
+};
+
+async function processRoleChangeFile(file, division, role, mode) {
+  const config = ROLE_MODES[mode];
   clearOutput();
-  updateSummary('Assigning role...');
+  updateSummary(config.busy);
   setBusy(true);
   refreshAuthState();
 
@@ -1641,7 +1718,18 @@ async function processRoleAssignFile(file, division, role) {
     logInfo(`Role: ${role.name} (${role.id})`);
     logInfo(`Emails to process: ${emails.length}`);
 
-    let assigned = 0;
+    if (mode === 'remove') {
+      const confirmed = window.confirm(
+        `Remove the role "${role.name}" in division "${division.name}" from ${emails.length} user(s)?\n\nThis changes their permissions immediately.`
+      );
+      if (!confirmed) {
+        logWarning('Cancelled: no role was removed.');
+        updateSummary('Cancelled: no changes were made.');
+        return;
+      }
+    }
+
+    let changed = 0;
     let notFound = 0;
     let failed = 0;
 
@@ -1659,13 +1747,11 @@ async function processRoleAssignFile(file, division, role) {
             failed += 1;
           }
         } else {
-          const response = await postWithRateLimitRetry(
-            `/api/v2/authorization/subjects/${encodeURIComponent(lookup.AgentId)}/divisions/${encodeURIComponent(division.id)}/roles/${encodeURIComponent(role.id)}`
-          );
+          const response = await config.request(lookup.AgentId, division, role);
 
           if (response.ok) {
-            logSuccess(`Role assigned to ${email} (${lookup.AgentId})`);
-            assigned += 1;
+            logSuccess(config.success(email, lookup.AgentId));
+            changed += 1;
           } else {
             const detail = response.data?.message || response.raw || response.statusText;
             logError(`HTTP ERROR: ${email} -> ${response.status} -> ${detail}`);
@@ -1680,16 +1766,25 @@ async function processRoleAssignFile(file, division, role) {
       if (index < emails.length - 1) await sleep(GROUP_ADD_DELAY_MS);
     }
 
-    logInfo('Role assignment completed.');
-    updateSummary(`Role update finished: ${assigned} assigned, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
+    logInfo(config.done);
+    updateSummary(`${config.summary} finished: ${changed} ${config.verb}, ${notFound} not found, ${failed} failed, ${skipped} skipped.`);
   } catch (err) {
     logError(err.message || String(err));
-    updateSummary(`Role update stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
+    updateSummary(`${config.summary} stopped: ${counters.errors} error(s) and ${counters.warnings} warning(s).`);
   } finally {
     refreshAuthState();
     setBusy(false);
-    if (elements.rolesEmailsFile) elements.rolesEmailsFile.value = '';
+    const input = config.file();
+    if (input) input.value = '';
   }
+}
+
+function processRoleAssignFile(file, division, role) {
+  return processRoleChangeFile(file, division, role, 'assign');
+}
+
+function processRoleRemoveFile(file, division, role) {
+  return processRoleChangeFile(file, division, role, 'remove');
 }
 
 // ---------------------------------------------------------------------------
@@ -3071,11 +3166,48 @@ if (elements.ExternalContactCsvForm) {
     await processRoleAssignFile(file, division, role);
   });
 
+  elements.roleRemoveForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const divisionId = asTrimmedString(elements.removeDivisionSelect.value);
+    const roleId = asTrimmedString(elements.removeRoleSelect.value);
+    const file = elements.removeRolesEmailsFile?.files?.[0];
+
+    if (!divisionId) {
+      clearOutput();
+      logError('Select a division first.');
+      return;
+    }
+
+    if (!roleId) {
+      clearOutput();
+      logError('Select a role first.');
+      return;
+    }
+
+    if (!file) {
+      clearOutput();
+      logError('Select a file with the emails first.');
+      return;
+    }
+
+    const isAuthenticated = await ensureAuthenticated();
+    if (!isAuthenticated) return;
+
+    const division = removeDivisionsPicker.find(divisionId) || { id: divisionId, name: divisionId };
+    const role = removeRolesPicker.find(roleId) || { id: roleId, name: roleId };
+    await processRoleRemoveFile(file, division, role);
+  });
+
   document.querySelector('[data-tabs]').addEventListener('tabchange', (event) => {
     if (event.detail.id === 'tab-groups') groupsPicker.load();
     if (event.detail.id === 'tab-roles') {
       divisionsPicker.load();
       rolesPicker.load();
+    }
+    if (event.detail.id === 'tab-roleremove') {
+      removeDivisionsPicker.load();
+      removeRolesPicker.load();
     }
   });
 
